@@ -132,6 +132,10 @@ button, select { font: inherit; color: inherit; }
 .body-card { position: relative; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; background: rgba(255, 255, 255, 0.03); }
 .body-card h3 { margin: 0 0 6px !important; color: var(--fg) !important; font-size: 16px !important; }
 .body-card p { margin: 6px 0 0; font-size: 13px; }
+.comet-card .provenance { margin: 8px 0 0; font-size: 12px; }
+.jump-returns { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.jump-returns button { flex: 1 1 auto; background: none; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; font-size: 12.5px; cursor: pointer; }
+.jump-returns button:hover, .jump-returns button:focus-visible { border-color: var(--accent); color: var(--accent); }
 .close { position: absolute; top: 6px; right: 8px; border: 0; background: none; font-size: 20px; cursor: pointer; color: var(--muted); line-height: 1; }
 
 #hint {

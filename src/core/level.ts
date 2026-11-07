@@ -47,6 +47,8 @@ export interface Marker {
   infoId?: string;
   /** Clicking enters this Close-up. */
   closeUp?: CloseUpId;
+  /** Called when the pointer (or keyboard focus) enters or leaves the marker. */
+  onHover?(on: boolean): void;
 }
 
 /** Anything the engine can draw from its own camera: a Scale Level or a Close-up. */

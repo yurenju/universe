@@ -33,5 +33,7 @@ export const DATA_CREDITS: { title: string; author: string; license: string; url
   { title: 'The jet of Cygnus X-1', author: 'A. M. Stirling et al. (2001), MNRAS 327, 1273', license: '學術文獻數據', url: 'https://doi.org/10.1046/j.1365-8711.2001.04821.x', use: '天鵝座 X-1 噴流的方向與長度' },
   { title: 'Mass distribution in the Galactic Center', author: 'GRAVITY Collaboration (2022), A&A 657, L12', license: '學術文獻數據', url: 'https://doi.org/10.1051/0004-6361/202142465', use: '人馬座 A* 的質量、距離與 S 星群軌道' },
   { title: 'First Sagittarius A* EHT results', author: 'EHT Collaboration (2022), ApJL 930, L12', license: '學術文獻數據', url: 'https://doi.org/10.3847/2041-8213/ac6674', use: '人馬座 A* 光環的大小' },
+  { title: 'JPL Small-Body Database & Horizons', author: 'NASA/JPL Solar System Dynamics', license: '公開資料', url: 'https://ssd.jpl.nasa.gov/', use: '週期彗星的軌道要素與回歸（近日點）日期' },
+  { title: 'The long-term motion of comet Halley', author: 'D. K. Yeomans & T. Kiang (1981), MNRAS 197, 633', license: '學術文獻數據', url: 'https://doi.org/10.1093/mnras/197.3.633', use: '哈雷彗星 1066 年的回歸日期' },
   { title: 'Three.js', author: 'three.js authors', license: 'MIT', url: 'https://threejs.org/', use: '3D 繪圖' },
 ];

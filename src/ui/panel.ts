@@ -1,11 +1,13 @@
+import { COMET_BY_ID, returnTimes, type CometInfo } from '../content/comets';
 import { CREDITS, DATA_CREDITS } from '../content/credits';
+import { amongPlanets, aphelionAu, bracketReturns, cometPosition, formatSpan, perihelionAu, periodMs, type Return } from '../core/comet';
 import { BODY_INFO, CLOSE_UP_INFO, LEVEL_INFO, type BodyInfo, type LevelInfo } from '../content/info';
 import type { CloseUpId } from '../core/closeUp';
 import { LOCAL_GROUP } from '../content/localGroup';
 import { CLUSTERS } from '../content/largeScale';
 import type { Marker } from '../core/level';
 import { METERS, type LevelId } from '../core/scale';
-import { formatDistance } from '../core/units';
+import { formatDistance, formatLightTime } from '../core/units';
 import { assetUrl } from '../render/assets';
 import { STAR_NAMES_ZH } from '../levels/stellar';
 
@@ -76,6 +78,10 @@ function lookupBody(infoId: string, marker: Marker): BodyInfo | null {
 }
 
 export function renderBody(marker: Marker): string {
+  if (marker.infoId?.startsWith('comet:')) {
+    const c = COMET_BY_ID[marker.infoId.slice(6)];
+    return c ? renderComet(c) : '';
+  }
   const info = marker.infoId ? lookupBody(marker.infoId, marker) : null;
   if (!info) return '';
   return `
@@ -100,4 +106,82 @@ export function renderCredits(): string {
     <p>本網站的程式碼以 MIT 授權釋出。圖片與資料依各自原始授權使用，列於下方。</p>
     <h3>資料與軟體</h3><ul class="credit-list">${data}</ul>
     <h3>圖片與貼圖</h3><ul class="credit-list">${rows || '<li>（尚未載入圖片素材，目前使用程式產生的外觀）</li>'}</ul>`;
+}
+
+// ---- Periodic Comets ----
+
+const DAY_MS = 864e5;
+const YEAR_MS = 365.25 * DAY_MS;
+
+function formatReturnDate(r: Return): string {
+  const d = new Date(r.time);
+  const y = d.getUTCFullYear();
+  if (r.approx) return `約 ${y} 年 ${d.getUTCMonth() + 1} 月（推算）`;
+  // before the Gregorian reform the records use the Julian calendar; the year is enough
+  if (y < 1583) return `${y} 年`;
+  return `${y} 年 ${d.getUTCMonth() + 1} 月 ${d.getUTCDate()} 日`;
+}
+
+function formatPeriod(c: CometInfo): string {
+  const yr = periodMs(c.orbit) / YEAR_MS;
+  return `約 ${yr >= 10 ? Math.round(yr) : yr.toFixed(1)} 年`;
+}
+
+function renderComet(c: CometInfo): string {
+  const facts: [string, string][] = [
+    ['週期', formatPeriod(c)],
+    ['軌道範圍', `近日點在${amongPlanets(perihelionAu(c.orbit))}，遠日點在${amongPlanets(aphelionAu(c.orbit))}`],
+  ];
+  if (c.showers) facts.push(['流星雨', c.showers]);
+  return `
+    <div class="body-card comet-card" data-comet="${esc(c.id)}">
+      <button class="close" type="button" aria-label="關閉">×</button>
+      <h3>${esc(c.zh)} <small>${esc(c.designation)}</small></h3>
+      <dl class="facts">
+        <dt>下次回歸</dt><dd data-live="next"></dd>
+        <dt>上次回歸</dt><dd data-live="prev"></dd>
+        <dt>離太陽</dt><dd data-live="dist"></dd>
+        ${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}
+      </dl>
+      <div class="jump-returns">
+        <button type="button" data-jump="prev">⏮ 跳到上次回歸</button>
+        <button type="button" data-jump="next">跳到下次回歸 ⏭</button>
+      </div>
+      <p>${esc(c.nextViewing)}</p>
+      <p>${esc(c.story)}</p>
+      <ul class="provenance">
+        <li><span class="badge obs">觀測資料</span>軌道來自 JPL 小天體資料庫，回歸日期來自觀測紀錄與已發表的預測</li>
+        <li><span class="badge inf">推測呈現</span>彗尾的長度與外觀是示意；「推算」的回歸是用平均週期往後推的</li>
+      </ul>
+    </div>`;
+}
+
+/** Fill in the Sim Time–dependent fields of an open comet Body Card. */
+export function updateCometCard(root: HTMLElement, date: Date): void {
+  const card = root.querySelector<HTMLElement>('.comet-card');
+  const c = card && COMET_BY_ID[card.dataset.comet!];
+  if (!card || !c) return;
+  const t = date.getTime();
+  const { prev, next } = bracketReturns(returnTimes(c), c.orbit, t);
+  const ago = t - prev.time < DAY_MS ? '就是現在' : `${formatSpan(t - prev.time)}前`;
+  const p = cometPosition(c.orbit, returnTimes(c), t);
+  const rM = Math.hypot(p[0], p[1], p[2]) * METERS.AU;
+  const set = (key: string, text: string) => {
+    const el = card.querySelector(`[data-live="${key}"]`);
+    if (el && el.textContent !== text) el.textContent = text;
+  };
+  set('next', `${formatReturnDate(next)}，還有 ${formatSpan(next.time - t)}`);
+  set('prev', `${formatReturnDate(prev)}，${ago}`);
+  set('dist', `${formatDistance(rM)}，陽光要走 ${formatLightTime(rM)}`);
+}
+
+/**
+ * Sim Time to jump to for a comet's previous or next Return. "Previous" skips a
+ * Return passed within the last month, so pressing it again keeps going back.
+ */
+export function cometJumpTime(id: string, which: 'prev' | 'next', t: number): number | null {
+  const c = COMET_BY_ID[id];
+  if (!c) return null;
+  const ret = returnTimes(c);
+  return which === 'next' ? bracketReturns(ret, c.orbit, t).next.time : bracketReturns(ret, c.orbit, t - 30 * DAY_MS).prev.time;
 }

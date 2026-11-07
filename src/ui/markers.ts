@@ -29,6 +29,8 @@ export class MarkerOverlay {
   private els = new Map<string, HTMLElement>();
   /** Latest view each marker was drawn in (views are rebuilt every frame). */
   private views = new Map<string, LevelView>();
+  /** Hovered markers with an onHover callback, so hiding one also ends its hover. */
+  private hovered = new Map<string, Marker>();
   private tmp = new THREE.Vector3();
   private centre = new THREE.Vector3();
 
@@ -63,6 +65,17 @@ export class MarkerOverlay {
         e.stopPropagation();
         this.engine.selectMarkerInView(this.views.get(key) ?? view, m);
       });
+      if (m.onHover) {
+        const hover = (on: boolean) => {
+          if (on) this.hovered.set(key, m);
+          else this.hovered.delete(key);
+          m.onHover!(on);
+        };
+        el.addEventListener('pointerenter', () => hover(true));
+        el.addEventListener('pointerleave', () => hover(false));
+        el.addEventListener('focus', () => hover(true));
+        el.addEventListener('blur', () => hover(false));
+      }
       this.root.appendChild(el);
       this.els.set(key, el);
     }
@@ -110,6 +123,14 @@ export class MarkerOverlay {
       p.el.classList.toggle('label-hidden', hit);
       if (!hit) kept.push(p);
     }
-    for (const [key, el] of this.els) if (!seen.has(key)) el.style.display = 'none';
+    for (const [key, el] of this.els) {
+      if (seen.has(key)) continue;
+      el.style.display = 'none';
+      const m = this.hovered.get(key);
+      if (m) {
+        this.hovered.delete(key);
+        m.onHover?.(false);
+      }
+    }
   }
 }

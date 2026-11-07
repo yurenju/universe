@@ -4,6 +4,8 @@ import { PLANETS, earthBasisEcl, helioEcl, sampleOrbit, type PlanetName } from '
 import type { FrameContext, Marker } from '../core/level';
 import { METERS } from '../core/scale';
 import { mulberry32 } from '../render/assets';
+import { COMETS } from '../content/comets';
+import { CometView } from '../render/comets';
 import { BODY_SPECS, placeBody, poleEcl, saturnRings, spinBasis, texturedSphere } from '../render/bodies';
 import { createPoints, createPointsMaterial, updatePointsScale } from '../render/points';
 import { glowSprite, glowTexture, polyline } from '../render/primitives';
@@ -108,6 +110,7 @@ export class PlanetaryLevel extends BaseLevel {
   private positions = new Map<PlanetName, THREE.Vector3>();
   private asteroids = new Belt(5000, 2.1, 3.3, 18, new THREE.Color(0.75, 0.68, 0.6), 7, 1.6);
   private kuiper = new Belt(5000, 30, 50, 25, new THREE.Color(0.55, 0.65, 0.8), 11, 1.6);
+  readonly comets = COMETS.map((c) => new CometView(c));
 
   constructor() {
     super();
@@ -115,7 +118,7 @@ export class PlanetaryLevel extends BaseLevel {
     this.anchors = { earth: this.positions.get('Earth')!, sun: new THREE.Vector3() };
     this.sunGlow = glowSprite(glowTexture(), 0xffe2b0, 0.06, 1);
     (this.sunGlow.material as THREE.SpriteMaterial).sizeAttenuation = false;
-    this.scene.add(this.sky.group, this.sunGlow, this.asteroids.points, this.kuiper.points);
+    this.scene.add(this.sky.group, this.sunGlow, this.asteroids.points, this.kuiper.points, ...this.comets.map((c) => c.group));
     const light = new THREE.PointLight(0xffffff, 3.2, 0, 0);
     this.scene.add(light, new THREE.AmbientLight(0xffffff, 0.02));
 
@@ -150,6 +153,20 @@ export class PlanetaryLevel extends BaseLevel {
         infoId: p,
       });
     }
+    for (const c of this.comets) {
+      const small = c.info.orbit.a < 5;
+      ms.push({
+        id: `comet-${c.info.id.toLowerCase()}`,
+        label: c.info.zh,
+        labelEn: c.info.en,
+        kind: 'body',
+        position: (o) => o.copy(c.position),
+        sMin: 9.6,
+        sMax: small ? 12.9 : 13.6,
+        infoId: `comet:${c.info.id}`,
+        onHover: (on) => c.setHovered(on),
+      });
+    }
     ms.push(
       this.fixedMarker({ id: 'asteroid-belt', label: '小行星帶', labelEn: 'Asteroid belt', kind: 'region', at: new THREE.Vector3(...toThree([1.9, -2.0, 0])), sMin: 11.9, sMax: 12.7, infoId: 'AsteroidBelt' }),
       this.fixedMarker({ id: 'kuiper-belt', label: '古柏帶', labelEn: 'Kuiper belt', kind: 'region', at: new THREE.Vector3(...toThree([-30, 26, 0])), sMin: 12.8, sMax: 13.6, infoId: 'KuiperBelt' }),
@@ -178,6 +195,11 @@ export class PlanetaryLevel extends BaseLevel {
     this.scene.add(this.rings);
   }
 
+  /** Brighten the orbit of the comet whose Body Card is open (null: none). */
+  selectComet(id: string | null): void {
+    for (const c of this.comets) c.setSelected(c.info.id === id);
+  }
+
   update(ctx: FrameContext): void {
     const date = ctx.date;
     for (const p of PLANETS) {
@@ -198,6 +220,7 @@ export class PlanetaryLevel extends BaseLevel {
       const r = BODY_SPECS.Sun.radiusKm * KM_TO_AU * (ctx.magnify ? SUN_MAGNIFY : 1);
       placeBody(this.sun, new THREE.Vector3(), spinBasis(BODY_SPECS.Sun, date), r);
     }
+    for (const c of this.comets) c.update(date, ctx.camera);
     this.asteroids.update(date, 0.9);
     this.kuiper.update(date, 0.7);
     updatePointsScale(this.asteroids.points.material as THREE.ShaderMaterial, ctx.camera, ctx.viewportHeight);

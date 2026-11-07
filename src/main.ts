@@ -23,7 +23,7 @@ import { assetUrl } from './render/assets';
 import { attachControls } from './ui/controls';
 import { BottomSheet, watchLayout, type LayoutMode } from './ui/layout';
 import { MarkerOverlay } from './ui/markers';
-import { renderBody, renderCloseUp, renderCredits, renderLevel } from './ui/panel';
+import { cometJumpTime, renderBody, renderCloseUp, renderCredits, renderLevel, updateCometCard } from './ui/panel';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -53,9 +53,10 @@ function main(): void {
     return;
   }
 
+  const planetary = new PlanetaryLevel();
   const levels: ScaleLevel[] = [
     new EarthMoonLevel(),
-    new PlanetaryLevel(),
+    planetary,
     new HeliosphereLevel(),
     new OortLevel(),
     new StellarLevel(),
@@ -219,7 +220,26 @@ function main(): void {
   engine.onFocusChange = (marker) => {
     const hadCard = !!bodySlot.innerHTML;
     bodySlot.innerHTML = marker ? renderBody(marker) : '';
+    const cometId = bodySlot.querySelector<HTMLElement>('.comet-card')?.dataset.comet ?? null;
+    planetary.selectComet(cometId);
+    if (cometId) {
+      updateCometCard(bodySlot, engine.clock.date);
+      // Jumping to a Return sets Sim Time and plays at the view's Default Time Rate.
+      for (const b of bodySlot.querySelectorAll<HTMLButtonElement>('[data-jump]')) {
+        b.addEventListener('click', () => {
+          const t = cometJumpTime(cometId, b.dataset.jump as 'prev' | 'next', engine.clock.time);
+          if (t === null) return;
+          engine.clock.time = t;
+          engine.clock.rate = defaultTimeRate(timeView);
+          engine.clock.paused = false;
+          play.textContent = '⏸';
+          syncRateMenu();
+          updateCometCard(bodySlot, engine.clock.date);
+        });
+      }
+    }
     bodySlot.querySelector('.close')?.addEventListener('click', () => {
+      planetary.selectComet(null);
       bodySlot.innerHTML = '';
       engine.releaseFocus();
       cardClosed();
@@ -368,6 +388,7 @@ function main(): void {
       widthEl.textContent = `畫面寬度約 ${formatDistance(w)}`;
       lightEl.textContent = `光走過要 ${formatLightTime(w)}`;
       if (!magnifyTip.hidden) magnifyTip.textContent = magnifyNote(currentView());
+      updateCometCard(bodySlot, engine.clock.date);
       if (engine.dominant <= 1 || engine.activeCloseUp()) dateEl.textContent = (mode === 'desktop' ? dateFmt : dateFmtShort).format(engine.clock.date);
     }
   };
