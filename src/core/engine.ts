@@ -340,7 +340,8 @@ export class Engine {
     }
   }
 
-  private focusRadius(marker: Marker): number {
+  /** Radius in metres a focusable marker's body is drawn at (Magnified Bodies included). */
+  focusRadius(marker: Marker): number {
     const f = marker.focus!;
     return f.radius * (this.magnify ? (f.magnifiedFactor ?? 1) : 1);
   }

@@ -29,8 +29,11 @@ button, select { font: inherit; color: inherit; }
   width: 0; height: 0; white-space: nowrap; will-change: transform; text-shadow: 0 0 4px #000, 0 0 2px #000;
 }
 /* the dot is centred exactly on the marker's screen position */
-.marker .dot { position: absolute; left: 0; top: 0; width: 10px; height: 10px; translate: -50% -50%; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, 0.85); }
-.marker .label { position: absolute; left: 9px; top: -9px; display: flex; flex-direction: column; line-height: 1.15; font-size: 13px; text-align: left; }
+/* --ring-r is set per frame so the ring encircles a visible body instead of covering it.
+   The ring stays hidden (it would sit on the body) until the marker is hovered or focused. */
+.marker .dot { position: absolute; left: 0; top: 0; width: calc(2 * var(--ring-r, 5px)); height: calc(2 * var(--ring-r, 5px)); translate: -50% -50%; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, 0.85); opacity: 0; transition: opacity 0.15s; }
+.marker:hover .dot, .marker:focus-visible .dot, .marker-here .dot { opacity: 1; }
+.marker .label { position: absolute; left: calc(var(--ring-r, 5px) + 4px); top: -9px; display: flex; flex-direction: column; line-height: 1.15; font-size: 13px; text-align: left; }
 .marker.label-hidden .label { display: none; }
 .marker .en { font-size: 10.5px; color: var(--muted); }
 .marker:hover .zh, .marker:focus-visible .zh { color: var(--accent); }

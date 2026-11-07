@@ -4,6 +4,8 @@ import type { Marker } from '../core/level';
 
 const FADE = 0.2; // dex over which a marker fades in/out at the edges of its range
 const PRIORITY: Record<Marker['kind'], number> = { here: 0, body: 1, probe: 2, region: 3 };
+const DOT_R = 5; // px, radius of the ring when the body is too small to see
+const RING_GAP = 3; // px between a visible body's limb and the ring around it
 
 interface Placed {
   el: HTMLElement;
@@ -28,6 +30,18 @@ export class MarkerOverlay {
   /** Latest view each marker was drawn in (views are rebuilt every frame). */
   private views = new Map<string, LevelView>();
   private tmp = new THREE.Vector3();
+  private centre = new THREE.Vector3();
+
+  /** On-screen radius in px of the body a marker sits on, or 0 if it has no size. */
+  private bodyPx(view: LevelView, m: Marker, centre: THREE.Vector3, screenH: number): number {
+    if (!m.focus) return 0;
+    const cam = view.camera;
+    const dist = cam.position.distanceTo(centre);
+    if (dist <= 0) return 0;
+    const r = this.engine.focusRadius(m) / view.level.unit;
+    const pxPerUnitAtDist = screenH / 2 / Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) / dist;
+    return r * pxPerUnitAtDist;
+  }
 
   constructor(
     private root: HTMLElement,
@@ -66,7 +80,8 @@ export class MarkerOverlay {
         const edge = Math.min((s - m.sMin) / FADE, (m.sMax - s) / FADE, 1);
         const alpha = Math.max(0, edge) * view.weight;
         if (alpha <= 0.02) continue;
-        const p = m.position(this.tmp).project(view.camera);
+        m.position(this.centre);
+        const p = this.tmp.copy(this.centre).project(view.camera);
         if (p.z > 1 || p.z < -1 || Math.abs(p.x) > 1.2 || Math.abs(p.y) > 1.2) continue;
         const key = `${view.level.id}:${m.id}`;
         const el = this.element(key, view, m);
@@ -78,8 +93,13 @@ export class MarkerOverlay {
         el.style.opacity = alpha.toFixed(3);
         el.style.display = '';
         el.style.pointerEvents = alpha > 0.4 ? 'auto' : 'none';
+        // The (hover-only) ring encircles the body rather than covering it; the label moves
+        // out past the ring.
+        const ringR = Math.max(DOT_R, this.bodyPx(view, m, this.centre, h) + RING_GAP);
+        el.style.setProperty('--ring-r', `${ringR.toFixed(1)}px`);
+        const off = ringR + 4;
         const { w: lw, h: lh } = labelSize(m);
-        placed.push({ el, x: x + 9, y: y - 9, w: lw, h: lh, prio: PRIORITY[m.kind] - alpha * 0.5, alpha });
+        placed.push({ el, x: x + off, y: y - 9, w: lw, h: lh, prio: PRIORITY[m.kind] - alpha * 0.5, alpha });
       }
     }
     // greedy de-cluttering: important, opaque labels claim space first
