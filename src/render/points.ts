@@ -3,6 +3,7 @@ import * as THREE from 'three';
 const vertex = (hook: PointsVertexHook | undefined) => /* glsl */ `
 #include <common>
 #include <logdepthbuf_pars_vertex>
+#include <clipping_planes_pars_vertex>
 attribute float size;
 attribute vec3 color;
 uniform float uScale;      // pixels per world unit at distance 1
@@ -18,14 +19,17 @@ void main() {
   float sz = size;
   vec3 col = color;
   ${hook?.body ?? ''}
-  vec4 mv = modelViewMatrix * vec4(pos, 1.0);
-  gl_Position = projectionMatrix * mv;
-  float px = mix(sz * uPixelRatio, sz * uScale / max(-mv.z, 1e-9), uAttenuate);
+  vec4 wp = modelMatrix * vec4(pos, 1.0);
+  ${hook?.worldBody ?? ''}
+  vec4 mvPosition = viewMatrix * wp;
+  gl_Position = projectionMatrix * mvPosition;
+  float px = mix(sz * uPixelRatio, sz * uScale / max(-mvPosition.z, 1e-9), uAttenuate);
   // Points smaller than the minimum keep the minimum size but dim instead,
   // so tiny distant things fade out rather than flicker.
   vFade = clamp(px / uMinSize, 0.0, 1.0);
   gl_PointSize = clamp(px, uMinSize, uMaxSize);
   vColor = col;
+  #include <clipping_planes_vertex>
   #include <logdepthbuf_vertex>
 }
 `;
@@ -33,11 +37,13 @@ void main() {
 const fragment = /* glsl */ `
 #include <common>
 #include <logdepthbuf_pars_fragment>
+#include <clipping_planes_pars_fragment>
 uniform float uOpacity;
 uniform float uSoftness;
 varying vec3 vColor;
 varying float vFade;
 void main() {
+  #include <clipping_planes_fragment>
   #include <logdepthbuf_fragment>
   vec2 p = gl_PointCoord * 2.0 - 1.0;
   float d2 = dot(p, p);
@@ -62,12 +68,25 @@ export interface PointsOptions {
 
 /**
  * GLSL spliced into the points vertex shader. `body` runs first in main() and may
- * rewrite `pos` (model space), `sz` (the size attribute's meaning) and `col`.
+ * rewrite `pos` (model space), `sz` (the size attribute's meaning) and `col`;
+ * `worldBody` then runs with the world position `wp` and may rewrite it, `sz` or `col`.
+ * The built-in `cameraPosition` (world) is available to both.
  */
 export interface PointsVertexHook {
-  declarations: string;
-  body: string;
-  uniforms: Record<string, THREE.IUniform>;
+  declarations?: string;
+  body?: string;
+  worldBody?: string;
+  uniforms?: Record<string, THREE.IUniform>;
+}
+
+/** Run hooks one after the other (declarations and uniforms are pooled). */
+export function chainHooks(...hooks: PointsVertexHook[]): PointsVertexHook {
+  return {
+    declarations: hooks.map((h) => h.declarations ?? '').join('\n'),
+    body: hooks.map((h) => h.body ?? '').join('\n'),
+    worldBody: hooks.map((h) => h.worldBody ?? '').join('\n'),
+    uniforms: Object.assign({}, ...hooks.map((h) => h.uniforms ?? {})),
+  };
 }
 
 export function createPointsMaterial(opts: PointsOptions = {}): THREE.ShaderMaterial {
@@ -84,6 +103,7 @@ export function createPointsMaterial(opts: PointsOptions = {}): THREE.ShaderMate
       ...opts.vertexHook?.uniforms,
     },
     vertexShader: vertex(opts.vertexHook),
+    clipping: true, // honours renderer.clippingPlanes (see LensedRenderer's depth layers)
     fragmentShader: fragment,
     transparent: true,
     depthWrite: false,

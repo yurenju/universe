@@ -1,18 +1,25 @@
 import * as THREE from 'three';
 import { DISK_PEAK, ISCO, MAX_STEPS, STEP_FRACTION, TRACE_RADIUS } from '../core/blackhole';
+import type { PointsVertexHook } from './points';
 
 /**
  * Gravitational lensing around a Schwarzschild hole at the scene origin.
  *
  * Pipeline per frame:
- *   1. the scene's foreground (stars, jets, gas — everything except the sky
- *      and the accretion flow) is rasterised into an RGBA target with alpha;
+ *   1. the scene's foreground (jets, gas, orbits — everything except the sky,
+ *      the accretion flow and the companion star) is rasterised twice, split by
+ *      a clipping plane through the hole facing the camera: a *back* layer
+ *      (beyond the hole) and a *front* layer (between camera and hole). The
+ *      companion star writes depth first, so foreground behind it is hidden.
+ *      Foreground stuff sits at finite distance, so it is not lensed by the
+ *      tracer; points can bend themselves with `vertexLensHook` (thin lens).
  *   2. the sky is a cube map rendered once from `skyScene`;
  *   3. a full-screen pass traces every pixel's light ray. Rays that pass
  *      within TRACE_RADIUS·Rs are integrated with the same RK4 scheme as
- *      src/core/blackhole.ts; the bent ray then looks up the foreground (by
- *      re-projecting its direction) and the sky. The accretion flow is drawn
- *      by the tracer itself so its far side bends over the hole.
+ *      src/core/blackhole.ts; the bent ray then looks up the sky and the star.
+ *      The accretion flow is drawn by the tracer itself so its far side bends
+ *      over the hole. The back layer goes under the flow (and is swallowed by
+ *      the shadow), the front layer over everything.
  */
 
 export type FlowMode = 'disk' | 'diffuse';
@@ -58,7 +65,8 @@ precision highp float;
 #define DISK_PEAK ${DISK_PEAK.toFixed(6)}
 #define DIFFUSE ${mode === 'diffuse' ? 1 : 0}
 
-uniform sampler2D tFg;
+uniform sampler2D tBack;
+uniform sampler2D tFront;
 uniform samplerCube tSky;
 uniform mat4 uCamWorld;
 uniform mat4 uView;
@@ -90,14 +98,6 @@ float fbm(vec2 p) {
 
 vec3 sky(vec3 d) { return textureCube(tSky, d).rgb; }
 
-// foreground image looked up along direction d (treated as far away)
-vec4 fg(vec3 d) {
-  vec4 c = uProj * uView * vec4(d, 0.0);
-  if (c.w <= 0.0) return vec4(0.0);
-  vec2 uv = c.xy / c.w * 0.5 + 0.5;
-  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec4(0.0);
-  return texture2D(tFg, uv);
-}
 
 vec3 tone(vec3 c) {
 #if DIFFUSE == 1
@@ -108,8 +108,7 @@ vec3 tone(vec3 c) {
 }
 
 vec3 behind(vec3 d) {
-  vec4 f = fg(d);
-  return sky(d) * (1.0 - f.a) + f.rgb;
+  return sky(d);
 }
 
 // temperature → colour, a blackbody-ish ramp from deep red to blue-white
@@ -130,6 +129,19 @@ float accA = 0.0;
 void addLayer(vec3 c, float a) {
   accC += (1.0 - accA) * c * a;
   accA += (1.0 - accA) * a;
+}
+
+// foreground layers at this pixel (premultiplied colour + alpha)
+vec4 layerBack;
+vec4 layerFront;
+
+// Final colour: what the ray ends on (back), the back foreground layer unless the
+// ray fell into the hole, the accumulated flow, then the front layer on top. The
+// foreground is glowing, optically thin gas (and thin lines), so it adds light
+// rather than covering what is behind it.
+vec3 finish(vec3 back, bool swallowed) {
+  if (!swallowed) back += layerBack.rgb;
+  return tone(accC) + (1.0 - accA) * back + layerFront.rgb;
 }
 
 // emission where the ray (direction d) meets the disk plane at x (Rs units)
@@ -274,9 +286,9 @@ void main() {
   float tStar = starHit(o, d);
   float tOcc = tStar > 0.0 ? tStar : 1e30;
 
-  vec2 uvHere = vUv;
-  vec4 fHere = texture2D(tFg, uvHere);
-  vec3 straightBehind = sky(d) * (1.0 - fHere.a) + fHere.rgb;
+  layerBack = texture2D(tBack, vUv);
+  layerFront = texture2D(tFront, vUv);
+  vec3 straightBehind = sky(d);
 
   if (uLensing < 0.5 || p2 > TRACE_R * TRACE_R || (tc < 0.0 && dot(o, o) > TRACE_R * TRACE_R)) {
     // no strong lensing: straight ray, flow drawn analytically
@@ -291,7 +303,7 @@ void main() {
       float tb = starHit(perp, bent);
       back = tb > 0.0 ? starShade(perp, bent, tb) : behind(bent);
     }
-    gl_FragColor = vec4(tone(accC) + (1.0 - accA) * back, 1.0);
+    gl_FragColor = vec4(finish(back, shadow), 1.0);
     return;
   }
 
@@ -299,7 +311,7 @@ void main() {
   float t0 = max(0.0, tc - inside);
   if (tOcc < t0) {
     straightFlow(o, d, 0.0, tOcc);
-    gl_FragColor = vec4(tone(accC) + (1.0 - accA) * starShade(o, d, tOcc), 1.0);
+    gl_FragColor = vec4(finish(starShade(o, d, tOcc), false), 1.0);
     return;
   }
   straightFlow(o, d, 0.0, t0);
@@ -337,7 +349,7 @@ void main() {
   } else if (!captured) {
     back = behind(normalize(vel));
   }
-  gl_FragColor = vec4(tone(accC) + (1.0 - accA) * back, 1.0);
+  gl_FragColor = vec4(finish(back, captured), 1.0);
 }
 `;
 
@@ -347,7 +359,44 @@ export class LensedRenderer {
   /** Sky at infinity, rendered once into a cube map around the origin. */
   readonly skyScene = new THREE.Scene();
 
-  private fg: THREE.WebGLRenderTarget;
+  /**
+   * Thin-lens bending for foreground points (chain it into their material's hook):
+   * a point beyond the hole is moved to its primary image; nearer points are left alone.
+   * The faint secondary image inside the Einstein ring is not drawn.
+   */
+  readonly vertexLensHook: PointsVertexHook = {
+    declarations: /* glsl */ `
+uniform float uVLensRs;
+uniform float uVLensOn;
+`,
+    worldBody: /* glsl */ `
+  if (uVLensOn > 0.5) {
+    vec3 lc = cameraPosition;
+    float lDl = length(lc);            // camera → hole (hole at the origin)
+    vec3 lAx = -lc / lDl;
+    vec3 lRel = wp.xyz - lc;
+    float lZ = dot(lRel, lAx);         // camera → source, along the axis
+    if (lZ > lDl) {
+      vec3 lTr = lRel - lAx * lZ;
+      float lTrL = length(lTr);
+      float lBeta = lTrL / lZ;
+      // θE² = 2 Rs · D_ls / (D_l · D_s); primary image θ = (β + √(β² + 4θE²)) / 2
+      float lThE2 = 2.0 * uVLensRs * (lZ - lDl) / (lDl * lZ);
+      float lTheta = 0.5 * (lBeta + sqrt(lBeta * lBeta + 4.0 * lThE2));
+      if (lTrL > 0.0) wp.xyz = lc + lAx * lZ + lTr / lTrL * (lTheta * lZ);
+    }
+  }
+`,
+    uniforms: { uVLensRs: { value: 1 }, uVLensOn: { value: 1 } },
+  };
+
+  private fgBack: THREE.WebGLRenderTarget;
+  private fgFront: THREE.WebGLRenderTarget;
+  /** Depth-only stand-in for the companion star, so foreground behind it is hidden. */
+  private occluder = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), new THREE.MeshBasicMaterial({ colorWrite: false }));
+  private backPlane = new THREE.Plane();
+  private frontPlane = new THREE.Plane();
+  private axis = new THREE.Vector3();
   private cube = new THREE.WebGLCubeRenderTarget(1024, { type: THREE.HalfFloatType });
   private cubeCamera = new THREE.CubeCamera(0.01, 10, this.cube);
   private cubeReady = false;
@@ -357,10 +406,15 @@ export class LensedRenderer {
   private clear = new THREE.Color();
 
   constructor(mode: FlowMode) {
-    this.fg = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    this.fgBack = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    this.fgFront = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    this.occluder.renderOrder = -1;
+    this.occluder.visible = false;
+    this.foreground.add(this.occluder);
     this.material = new THREE.ShaderMaterial({
       uniforms: {
-        tFg: { value: this.fg.texture },
+        tBack: { value: this.fgBack.texture },
+        tFront: { value: this.fgFront.texture },
         tSky: { value: this.cube.texture },
         uCamWorld: { value: new THREE.Matrix4() },
         uView: { value: new THREE.Matrix4() },
@@ -393,7 +447,7 @@ export class LensedRenderer {
   }
 
   render(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera, target: THREE.WebGLRenderTarget, p: LensParams): void {
-    if (this.fg.width !== target.width || this.fg.height !== target.height) this.fg.setSize(target.width, target.height);
+    for (const t of [this.fgBack, this.fgFront]) if (t.width !== target.width || t.height !== target.height) t.setSize(target.width, target.height);
     const prevAlpha = renderer.getClearAlpha();
     renderer.getClearColor(this.clear);
 
@@ -403,10 +457,26 @@ export class LensedRenderer {
       this.cubeReady = true;
     }
 
-    renderer.setRenderTarget(this.fg);
+    this.occluder.visible = !!p.occluder;
+    if (p.occluder) {
+      this.occluder.position.copy(p.occluder.center);
+      this.occluder.scale.setScalar(p.occluder.radius);
+    }
+    this.vertexLensHook.uniforms!.uVLensRs.value = p.rs;
+    this.vertexLensHook.uniforms!.uVLensOn.value = p.lensing ? 1 : 0;
+    // split the foreground at the plane through the hole, facing the camera
+    this.axis.copy(camera.position).negate().normalize();
+    this.backPlane.set(this.axis, 0);
+    this.frontPlane.set(this.axis.negate(), 0);
+    const prevPlanes = renderer.clippingPlanes;
     renderer.setClearColor(0x000000, 0);
-    renderer.clear();
-    renderer.render(this.foreground, camera);
+    for (const [layer, plane] of [[this.fgBack, this.backPlane], [this.fgFront, this.frontPlane]] as const) {
+      renderer.clippingPlanes = [plane];
+      renderer.setRenderTarget(layer);
+      renderer.clear();
+      renderer.render(this.foreground, camera);
+    }
+    renderer.clippingPlanes = prevPlanes;
     renderer.setClearColor(this.clear, prevAlpha);
 
     const u = this.material.uniforms;

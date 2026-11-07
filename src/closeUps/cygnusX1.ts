@@ -14,7 +14,7 @@ import { METERS } from '../core/scale';
 import { SPEED_OF_LIGHT } from '../core/units';
 import { gaussian, mulberry32 } from '../render/assets';
 import { LensedRenderer } from '../render/lensing';
-import { createPoints, createPointsMaterial, updatePointsScale } from '../render/points';
+import { chainHooks, createPoints, createPointsMaterial, updatePointsScale } from '../render/points';
 import { glowSprite, glowTexture } from '../render/primitives';
 import { BaseCloseUp, galToScene, lensQuality, starfield } from './common';
 
@@ -64,6 +64,19 @@ float jetHash(float x) { return fract(sin(x * 12.9898) * 43758.5453); }
   float fade = min(0.5, 0.25 * pow(d / uTip, -0.12)); // brighter near the base
   col = color * fade * (0.45 + 1.6 * knot);
 `,
+  worldBody: /* glsl */ `
+  // Relativistic beaming toward the camera: the jet coming at you outshines the
+  // one going away: δ = 1 / γ(1 − β cos θ), brightness ∝ δ^(2−α) with α ≈ −0.5
+  // (flat radio spectrum), which also tames the far jet piling up in perspective.
+  vec3 toCam = cameraPosition - wp.xyz;
+  float camDist = length(toCam);
+  vec3 flowDir = normalize(mat3(modelMatrix) * vec3(0.0, 0.0, position.z));
+  float beta = 0.5 * min(1.0, d / uCoast);
+  float dop = 1.0 / (inversesqrt(1.0 - beta * beta) * (1.0 - beta * dot(flowDir, toCam / camDist)));
+  col *= 0.2 * pow(dop, 2.5);
+  // gas passing right by the camera would fill the screen with big blobs: fade it
+  col *= 1.0 - smoothstep(0.01, 0.05, sz / camDist);
+`,
   uniforms: {
     uJetT: { value: 0 },
     uPeriod: { value: JET_PERIOD },
@@ -92,9 +105,9 @@ export class CygnusX1CloseUp extends BaseCloseUp {
   private starGlow: THREE.Sprite;
   private stream: THREE.Points;
   private streamSeeds: Float32Array;
-  private streamMat = createPointsMaterial({ attenuate: true, minSize: 1.2, maxSize: 26, softness: 2.5 });
+  private streamMat = createPointsMaterial({ attenuate: true, minSize: 1.2, maxSize: 26, softness: 2.5, vertexHook: this.lens.vertexLensHook });
   private jets = new THREE.Group();
-  private jetMat = createPointsMaterial({ attenuate: true, minSize: 1.4, maxSize: 30, softness: 3, vertexHook: jetHook });
+  private jetMat = createPointsMaterial({ attenuate: true, minSize: 1.4, maxSize: 30, softness: 3, vertexHook: chainHooks(jetHook, this.lens.vertexLensHook) });
   /** Simulated seconds of jet flow, wrapped to one period. */
   private jetTime = 0;
   private lastSimMs: number | null = null;
@@ -166,9 +179,8 @@ export class CygnusX1CloseUp extends BaseCloseUp {
       const w = 0.02 * Math.abs(gaussian(rand)); // opening angle ~2°
       const a = rand() * Math.PI * 2;
       pos.set([w * Math.cos(a), w * Math.sin(a), side], i * 3);
-      // the approaching jet is much brighter than the receding one (beaming)
-      const k = side > 0 ? 0.6 : 0.18;
-      col.set([k * 0.7, k * 0.82, k * 1.0], i * 3);
+      col.set([0.7, 0.82, 1.0], i * 3); // beaming is applied per view in jetHook
+
       size[i] = 0.012;
       seed[i] = rand();
     }
@@ -207,9 +219,7 @@ export class CygnusX1CloseUp extends BaseCloseUp {
     this.frameBasis.makeBasis(x, y, z);
     this.stream.matrix.copy(this.frameBasis);
     this.jets.matrix.copy(this.frameBasis);
-    // the approaching jet is +z only if the orbit axis points toward us
     const towardUs = galToScene(skyToGal(this.basis, [0, 0, -1]));
-    if (z.dot(towardUs) < 0) this.jets.matrix.multiply(new THREE.Matrix4().makeScale(1, 1, -1));
     this.updateStream(this.starPos.length());
     // tidally locked: the supergiant turns once per orbit, keeping one face to the hole
     this.starRot.setFromMatrix4(this.frameBasis).transpose();
