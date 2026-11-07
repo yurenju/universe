@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-const vertex = /* glsl */ `
+const vertex = (hook: PointsVertexHook | undefined) => /* glsl */ `
 #include <common>
 #include <logdepthbuf_pars_vertex>
 attribute float size;
@@ -12,15 +12,20 @@ uniform float uMaxSize;
 uniform float uPixelRatio;
 varying vec3 vColor;
 varying float vFade;
+${hook?.declarations ?? ''}
 void main() {
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vec3 pos = position;
+  float sz = size;
+  vec3 col = color;
+  ${hook?.body ?? ''}
+  vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
-  float px = mix(size * uPixelRatio, size * uScale / max(-mv.z, 1e-9), uAttenuate);
+  float px = mix(sz * uPixelRatio, sz * uScale / max(-mv.z, 1e-9), uAttenuate);
   // Points smaller than the minimum keep the minimum size but dim instead,
   // so tiny distant things fade out rather than flicker.
   vFade = clamp(px / uMinSize, 0.0, 1.0);
   gl_PointSize = clamp(px, uMinSize, uMaxSize);
-  vColor = color;
+  vColor = col;
   #include <logdepthbuf_vertex>
 }
 `;
@@ -51,6 +56,18 @@ export interface PointsOptions {
   opacity?: number;
   softness?: number;
   blending?: THREE.Blending;
+  /** Move or restyle points on the GPU (e.g. animate them without re-uploading buffers). */
+  vertexHook?: PointsVertexHook;
+}
+
+/**
+ * GLSL spliced into the points vertex shader. `body` runs first in main() and may
+ * rewrite `pos` (model space), `sz` (the size attribute's meaning) and `col`.
+ */
+export interface PointsVertexHook {
+  declarations: string;
+  body: string;
+  uniforms: Record<string, THREE.IUniform>;
 }
 
 export function createPointsMaterial(opts: PointsOptions = {}): THREE.ShaderMaterial {
@@ -64,8 +81,9 @@ export function createPointsMaterial(opts: PointsOptions = {}): THREE.ShaderMate
       uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
       uOpacity: { value: opts.opacity ?? 1 },
       uSoftness: { value: opts.softness ?? 3 },
+      ...opts.vertexHook?.uniforms,
     },
-    vertexShader: vertex,
+    vertexShader: vertex(opts.vertexHook),
     fragmentShader: fragment,
     transparent: true,
     depthWrite: false,

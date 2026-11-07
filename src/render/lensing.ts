@@ -32,7 +32,12 @@ export interface LensParams {
    * Optional companion star, scene units. It is drawn by the tracer itself
    * (not rasterised), so light bent around the hole can land on it.
    */
-  occluder?: { center: THREE.Vector3; radius: number };
+  occluder?: {
+    center: THREE.Vector3;
+    radius: number;
+    /** World → star-body rotation; its surface pattern is fixed in this frame, so it spins with it. */
+    rotation?: THREE.Matrix3;
+  };
   /** false → no ray bending (straight rays with a black shadow); for slow GPUs. */
   lensing: boolean;
   /** Fade in/out of the whole close-up (applied by the compositor, kept for parity). */
@@ -67,6 +72,7 @@ uniform float uTime;
 uniform float uBright;
 uniform vec3 uOccC;
 uniform float uOccR;
+uniform mat3 uOccRot;
 uniform float uLensing;
 varying vec2 vUv;
 
@@ -241,7 +247,7 @@ vec3 starShade(vec3 p, vec3 d, float t) {
   vec3 n = normalize(p + d * t - uOccC / uRs);
   float mu = clamp(dot(n, -d), 0.0, 1.0);
   float limb = 0.35 + 0.65 * pow(mu, 0.6);
-  vec3 q = n * 9.0 + vec3(uTime * 0.02);
+  vec3 q = (uOccRot * n) * 9.0 + vec3(uTime * 0.02);
   float g = n3(q) * 0.5 + n3(q * 2.3) * 0.3 + n3(q * 5.1) * 0.2;
   return mix(vec3(0.22, 0.38, 0.85), vec3(0.62, 0.74, 0.95), g) * limb * 0.95;
 }
@@ -368,6 +374,7 @@ export class LensedRenderer {
         uBright: { value: 1 },
         uOccC: { value: new THREE.Vector3() },
         uOccR: { value: 0 },
+        uOccRot: { value: new THREE.Matrix3() },
         uLensing: { value: 1 },
       },
       vertexShader: vertex,
@@ -415,6 +422,8 @@ export class LensedRenderer {
     u.uBright.value = p.brightness;
     u.uOccR.value = p.occluder?.radius ?? 0;
     if (p.occluder) u.uOccC.value.copy(p.occluder.center);
+    if (p.occluder?.rotation) u.uOccRot.value.copy(p.occluder.rotation);
+    else u.uOccRot.value.identity();
     u.uLensing.value = p.lensing ? 1 : 0;
 
     renderer.setRenderTarget(target);

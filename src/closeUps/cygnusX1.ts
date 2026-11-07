@@ -11,6 +11,7 @@ import { toThree } from '../core/frames';
 import type { FrameContext } from '../core/level';
 import { dateToJulianYear, orbitNormalSky, skyBasisGal, skyPosition, skyToGal } from '../core/orbit';
 import { METERS } from '../core/scale';
+import { SPEED_OF_LIGHT } from '../core/units';
 import { gaussian, mulberry32 } from '../render/assets';
 import { LensedRenderer } from '../render/lensing';
 import { createPoints, createPointsMaterial, updatePointsScale } from '../render/points';
@@ -20,6 +21,61 @@ import { BaseCloseUp, galToScene, lensQuality, starfield } from './common';
 const RS = schwarzschildRadius(CYG_X1.massBH);
 const AU_IN_RS = METERS.AU / RS;
 const STAR_R = CYG_X1_STAR_RADIUS_M / RS;
+
+// Jet flow, driven by Sim Time (all distances in Rs, times in simulated seconds).
+// Gas leaves ~20 Rs from the hole, accelerates (speed ∝ distance, so every zoom
+// level sees motion) until JET_COAST_FROM, then coasts at JET_SPEED to the tip.
+const JET_SPEED = (0.5 * SPEED_OF_LIGHT) / RS; // ~0.5 c (published estimates ≳ 0.6 c)
+const JET_BASE = 20;
+const JET_COAST_FROM = (3 * METERS.AU) / RS;
+const JET_TIP = (CYG_X1.jetLengthAU * METERS.AU) / RS;
+const JET_ACCEL_RATE = JET_SPEED / JET_COAST_FROM; // 1/s, exponential growth while accelerating
+const JET_ACCEL_TIME = Math.log(JET_COAST_FROM / JET_BASE) / JET_ACCEL_RATE;
+const JET_PERIOD = JET_ACCEL_TIME + (JET_TIP - JET_COAST_FROM) / JET_SPEED; // base to tip
+/** Brighter knots are launched about this often; a whole number of them fits in one period. */
+const JET_KNOTS = Math.round(JET_PERIOD / (2 * 3600));
+/** Faster Sim Time than this just strobes the jet, so it is capped (simulated s per real s). */
+const JET_MAX_RATE = 6 * 3600;
+
+const jetHook = {
+  declarations: /* glsl */ `
+attribute float seed;
+uniform float uJetT;
+uniform float uPeriod;
+uniform float uAccelT;
+uniform float uAccelK;
+uniform float uBase;
+uniform float uCoast;
+uniform float uSpeed;
+uniform float uTip;
+uniform float uKnots;
+float jetHash(float x) { return fract(sin(x * 12.9898) * 43758.5453); }
+`,
+  // position = (transverse offset per unit distance, side ±1); size = per unit distance
+  body: /* glsl */ `
+  float tau = mod(seed * uPeriod + uJetT, uPeriod);
+  float d = tau < uAccelT ? uBase * exp(uAccelK * tau) : uCoast + uSpeed * (tau - uAccelT);
+  pos = position * d;
+  sz = size * d;
+  // emission time stays fixed while the particle flies, so knots travel outward with the gas
+  float kn = (uJetT - tau) / uPeriod * uKnots;
+  float strength = 0.5 + jetHash(mod(floor(kn + 0.5), uKnots));
+  float knot = pow(0.5 + 0.5 * cos(6.2831853 * kn), 6.0) * strength;
+  float fade = min(0.5, 0.25 * pow(d / uTip, -0.12)); // brighter near the base
+  col = color * fade * (0.45 + 1.6 * knot);
+`,
+  uniforms: {
+    uJetT: { value: 0 },
+    uPeriod: { value: JET_PERIOD },
+    uAccelT: { value: JET_ACCEL_TIME },
+    uAccelK: { value: JET_ACCEL_RATE },
+    uBase: { value: JET_BASE },
+    uCoast: { value: JET_COAST_FROM },
+    uSpeed: { value: JET_SPEED },
+    uTip: { value: JET_TIP },
+    uKnots: { value: JET_KNOTS },
+  },
+};
 
 /** Close-up of Cygnus X-1: the black hole, its disk and jets, and the supergiant HDE 226868. */
 export class CygnusX1CloseUp extends BaseCloseUp {
@@ -38,7 +94,11 @@ export class CygnusX1CloseUp extends BaseCloseUp {
   private streamSeeds: Float32Array;
   private streamMat = createPointsMaterial({ attenuate: true, minSize: 1.2, maxSize: 26, softness: 2.5 });
   private jets = new THREE.Group();
-  private jetMat = createPointsMaterial({ attenuate: true, minSize: 1.4, maxSize: 30, softness: 3 });
+  private jetMat = createPointsMaterial({ attenuate: true, minSize: 1.4, maxSize: 30, softness: 3, vertexHook: jetHook });
+  /** Simulated seconds of jet flow, wrapped to one period. */
+  private jetTime = 0;
+  private lastSimMs: number | null = null;
+  private starRot = new THREE.Matrix3();
   private diskMarkerPos = new THREE.Vector3();
   private jetMarkerPos = new THREE.Vector3();
   private frameBasis = new THREE.Matrix4();
@@ -93,28 +153,39 @@ export class CygnusX1CloseUp extends BaseCloseUp {
     this.lens.skyScene.add(starfield(9000, 7, [0.75, 0.8, 0.95], 0.55));
   }
 
+  /** Jet particles; where each one is along the jet is worked out on the GPU (see jetHook). */
   private buildJets(): void {
     const rand = mulberry32(17);
-    const n = 16000;
+    const n = 24000;
     const pos = new Float32Array(n * 3);
     const col = new Float32Array(n * 3);
     const size = new Float32Array(n);
-    const lo = Math.log(20); // from ~20 Rs out
-    const hi = Math.log((CYG_X1.jetLengthAU * METERS.AU) / RS);
+    const seed = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const side = i % 2 === 0 ? 1 : -1;
-      const d = Math.exp(lo + (hi - lo) * Math.pow(rand(), 0.8));
-      const w = d * 0.02 * Math.abs(gaussian(rand)); // opening angle ~2°
+      const w = 0.02 * Math.abs(gaussian(rand)); // opening angle ~2°
       const a = rand() * Math.PI * 2;
-      pos.set([w * Math.cos(a), w * Math.sin(a), side * d], i * 3);
-      const fade = 0.25 * Math.pow(d / Math.exp(hi), -0.12); // brighter near the base
+      pos.set([w * Math.cos(a), w * Math.sin(a), side], i * 3);
       // the approaching jet is much brighter than the receding one (beaming)
-      const k = Math.min(0.5, fade) * (side > 0 ? 0.6 : 0.18);
+      const k = side > 0 ? 0.6 : 0.18;
       col.set([k * 0.7, k * 0.82, k * 1.0], i * 3);
-      size[i] = d * 0.012;
+      size[i] = 0.012;
+      seed[i] = rand();
     }
     const pts = createPoints(pos, col, size, this.jetMat);
+    pts.geometry.setAttribute('seed', new THREE.BufferAttribute(seed, 1));
     this.jets.add(pts);
+  }
+
+  /** Advance the jet with Sim Time, capped so fast rates (and jumps like "back to now") don't strobe. */
+  private advanceJet(ctx: FrameContext): void {
+    const ms = ctx.date.getTime();
+    const dSim = this.lastSimMs === null ? 0 : (ms - this.lastSimMs) / 1000;
+    this.lastSimMs = ms;
+    const cap = JET_MAX_RATE * ctx.dt;
+    const t = this.jetTime + THREE.MathUtils.clamp(dSim, -cap, cap);
+    this.jetTime = ((t % JET_PERIOD) + JET_PERIOD) % JET_PERIOD;
+    this.jetMat.uniforms.uJetT.value = this.jetTime;
   }
 
   update(ctx: FrameContext): void {
@@ -140,6 +211,9 @@ export class CygnusX1CloseUp extends BaseCloseUp {
     const towardUs = galToScene(skyToGal(this.basis, [0, 0, -1]));
     if (z.dot(towardUs) < 0) this.jets.matrix.multiply(new THREE.Matrix4().makeScale(1, 1, -1));
     this.updateStream(this.starPos.length());
+    // tidally locked: the supergiant turns once per orbit, keeping one face to the hole
+    this.starRot.setFromMatrix4(this.frameBasis).transpose();
+    this.advanceJet(ctx);
 
     this.diskMarkerPos.copy(y).multiplyScalar((CYG_X1_DISK_OUTER_M / RS) * 0.7);
     this.jetMarkerPos.copy(z).multiplyScalar(((z.dot(towardUs) >= 0 ? 1 : -1) * 0.6 * METERS.AU) / RS);
@@ -182,7 +256,7 @@ export class CygnusX1CloseUp extends BaseCloseUp {
       diskOuter: this.diskOuter,
       time: this.time,
       brightness: 1.0,
-      occluder: { center: this.starPos, radius: STAR_R },
+      occluder: { center: this.starPos, radius: STAR_R, rotation: this.starRot },
       lensing: lensQuality.enabled,
     });
   }
