@@ -2,7 +2,7 @@ import './style.css';
 import { CLOSE_UP_INFO, LEVEL_INFO } from './content/info';
 import { magnifyNote, type ViewId } from './content/magnify';
 import { CREDITS } from './content/credits';
-import { RATE_PRESETS } from './core/clock';
+import { RATE_PRESETS, defaultTimeRate } from './core/clock';
 import { CLOSE_UP_RANGES, parseRoute } from './core/closeUp';
 import { Engine } from './core/engine';
 import type { ScaleLevel } from './core/level';
@@ -68,6 +68,35 @@ function main(): void {
   const engine = new Engine($<HTMLCanvasElement>('#scene'), levels, [new CygnusX1CloseUp(), new SgrACloseUp()], initial);
   const overlay = new MarkerOverlay($('#markers'), engine);
 
+  // ---- Sim Time ----
+  // Entering a view switches to its Default Time Rate (pause state is kept); a rate
+  // picked by hand lasts until the view changes.
+  const rate = $<HTMLSelectElement>('#time-rate');
+  let timeView: ViewId = initial;
+  const syncRateMenu = () => {
+    const def = defaultTimeRate(timeView);
+    rate.innerHTML = RATE_PRESETS.map((p, i) => `<option value="${i}">${p.label}${p.rate === def ? '（預設）' : ''}</option>`).join('');
+    rate.value = String(Math.max(0, RATE_PRESETS.findIndex((p) => p.rate === engine.clock.rate)));
+  };
+  const enterTimeView = (view: ViewId) => {
+    timeView = view;
+    engine.clock.rate = defaultTimeRate(view);
+    syncRateMenu();
+  };
+  rate.addEventListener('change', () => (engine.clock.rate = RATE_PRESETS[+rate.value].rate));
+  const play = $('#time-play');
+  play.addEventListener('click', () => {
+    engine.clock.paused = !engine.clock.paused;
+    play.textContent = engine.clock.paused ? '▶' : '⏸';
+  });
+  $('#time-now').addEventListener('click', () => {
+    engine.clock.resetToNow(defaultTimeRate(timeView));
+    syncRateMenu();
+    play.textContent = '⏸';
+  });
+  const dateEl = $('#date');
+  const dateFmt = new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+
   // ---- Scale Ladder ----
   const ladder = $('#ladder');
   const ladderButtons = LEVEL_IDS.map((id) => {
@@ -101,6 +130,7 @@ function main(): void {
     $('#level-title').innerHTML = `${LEVEL_INFO[id].title}<small>${LEVEL_INFO[id].titleEn}</small>`;
     levelSlot.innerHTML = renderLevel(id);
     $('#time').hidden = i > 1;
+    enterTimeView(id);
     if (location.hash !== `#${id}`) history.replaceState(null, '', `#${id}`);
     document.title = `${LEVEL_INFO[id].title}｜宇宙尺度`;
   };
@@ -128,6 +158,7 @@ function main(): void {
     $('#level-title').innerHTML = `${info.title}<small>${info.titleEn}</small>`;
     levelSlot.innerHTML = renderCloseUp(id);
     $('#time').hidden = false;
+    enterTimeView(id);
     if (location.hash !== `#${id}`) history.replaceState(null, '', `#${id}`);
     document.title = `${info.title}｜宇宙尺度`;
     panel.scrollTop = 0;
@@ -232,22 +263,6 @@ function main(): void {
     { capture: true },
   );
 
-  // ---- Sim Time ----
-  const rate = $<HTMLSelectElement>('#time-rate');
-  rate.innerHTML = RATE_PRESETS.map((p, i) => `<option value="${i}">${p.label}</option>`).join('');
-  rate.addEventListener('change', () => (engine.clock.rate = RATE_PRESETS[+rate.value].rate));
-  const play = $('#time-play');
-  play.addEventListener('click', () => {
-    engine.clock.paused = !engine.clock.paused;
-    play.textContent = engine.clock.paused ? '▶' : '⏸';
-  });
-  $('#time-now').addEventListener('click', () => {
-    engine.clock.resetToNow();
-    rate.value = '0';
-    play.textContent = '⏸';
-  });
-  const dateEl = $('#date');
-  const dateFmt = new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 
   // ---- credits ----
   const dialog = $<HTMLDialogElement>('#credits');
