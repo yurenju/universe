@@ -49,6 +49,9 @@ button, select { font: inherit; color: inherit; }
 #hud { position: fixed; top: 16px; left: 16px; pointer-events: none; max-width: calc(100vw - 32px); }
 #hud h1 { margin: 0 0 8px; font-size: 22px; font-weight: 600; letter-spacing: 0.04em; text-shadow: 0 0 8px #000; }
 #hud h1 small { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+/* the title is a button only on phones (ladder dropdown / leave Close-up); on desktop it reads as plain text */
+#where { all: unset; display: inline-flex; align-items: baseline; gap: 6px; }
+#where .chev, #where .back-arrow { display: none; }
 #scale-readout { font-size: 12.5px; color: var(--muted); }
 #scale-readout .bar { width: 160px; height: 6px; border: 1px solid rgba(255, 255, 255, 0.6); border-top: 0; margin-bottom: 4px; }
 #scale-readout .text { display: flex; flex-direction: column; gap: 2px; }
@@ -101,11 +104,13 @@ button, select { font: inherit; color: inherit; }
 
 /* ---- panel ---- */
 #panel {
-  position: fixed; top: 64px; right: 16px; bottom: 16px; width: 340px; overflow-y: auto; padding: 16px 18px;
+  position: fixed; top: 64px; right: 16px; bottom: 16px; width: 340px; display: flex; flex-direction: column;
   background: var(--panel); backdrop-filter: blur(10px); border: 1px solid var(--line); border-radius: 14px; font-size: 14px; line-height: 1.65;
   transition: transform 0.3s, opacity 0.3s;
 }
 #panel.collapsed { transform: translateX(calc(100% + 24px)); opacity: 0; pointer-events: none; }
+#panel-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 18px; }
+#sheet-bar, .panel-foot { display: none; }
 #panel h2 { margin: 0; font-size: 19px; }
 #panel h2 small, #panel h3 small { font-size: 12px; color: var(--muted); font-weight: 400; }
 #panel h3 { font-size: 14px; margin: 18px 0 8px; color: var(--accent); font-weight: 600; }
@@ -149,21 +154,71 @@ dialog#credits h2 { margin-top: 0; }
 #no-webgl { position: fixed; inset: 0; overflow: auto; padding: 24px 16px; background: #000; }
 #no-webgl img { max-width: 100%; }
 
-@media (max-width: 760px) {
-  #hud h1 { font-size: 18px; }
-  #hud h1 small { display: none; }
-  #scale-readout .bar { width: 110px; }
-  #ladder { top: auto; bottom: 64px; transform: none; left: 8px; padding: 4px; }
-  #back { top: auto; bottom: 64px; transform: none; left: 8px; padding: 7px 13px; font-size: 13px; }
-  #ladder button { padding: 4px 6px; font-size: 11.5px; gap: 6px; }
-  #ladder button .exp { display: none; }
-  #toolbar { top: auto; bottom: 16px; right: 8px; left: 8px; justify-content: flex-end; }
-  #toolbar > * { padding: 5px 10px; font-size: 12px; }
-  #magnify-tip { top: auto; bottom: calc(100% + 8px); right: auto; left: 0; width: min(300px, calc(100vw - 32px)); }
-  #time { top: 96px; bottom: auto; left: 8px; right: 8px; transform: none; justify-content: center; }
-  #time > * { padding: 4px 9px; font-size: 11.5px; }
-  #time #date { min-width: 0; }
-  #panel { top: auto; left: 8px; right: 8px; bottom: 56px; width: auto; max-height: 46vh; }
-  #hint { bottom: auto; top: 136px; font-size: 12px; }
-  .marker .en { display: none; }
+/* ---- phones ----
+   Driven by classes on <html> set in ui/layout.ts: .compact for any phone layout,
+   .sheet for portrait (Info Panel as a bottom sheet), .side for landscape. */
+html.compact {
+  --gap: 8px;
+  --peek: calc(52px + env(safe-area-inset-bottom));
 }
+.compact #hud { top: calc(10px + env(safe-area-inset-top)); left: 12px; max-width: calc(100vw - 150px); }
+.compact #hud h1 { font-size: 18px; margin-bottom: 6px; }
+.compact #hud h1 small { display: none; }
+.compact #where { pointer-events: auto; cursor: pointer; padding: 2px 10px 2px 0; }
+.compact #where:focus-visible { outline: 1px dashed var(--accent); outline-offset: 3px; }
+.compact #where .chev { display: inline; font-size: 13px; color: var(--muted); }
+.compact #where .back-arrow { display: inline; color: var(--accent); }
+.compact #scale-readout .bar { width: 110px; }
+.compact .marker .en { display: none; }
+.compact #back { display: none; }
+
+/* Scale Ladder as a dropdown under the title */
+.compact #ladder { display: none; }
+.compact #ladder.open {
+  display: flex; flex-direction: column; top: calc(46px + env(safe-area-inset-top)); left: var(--gap); transform: none; z-index: 30;
+  max-height: calc(100dvh - 60px); overflow-y: auto; padding: 6px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6); background: rgba(12, 15, 24, 0.94);
+}
+.compact #ladder button { padding: 8px 10px; font-size: 14px; }
+.compact #ladder button .exp { font-size: 11px; }
+
+/* toolbar keeps only what fits; magnify explanation opens downwards */
+.compact #toolbar { top: calc(10px + env(safe-area-inset-top)); right: var(--gap); }
+.compact #toolbar > * { padding: 5px 10px; font-size: 12.5px; }
+.compact #magnify-tip { width: min(290px, calc(100vw - 32px)); }
+
+/* Sim Time folds into one chip: date + pause; the date opens rate and "now" */
+.compact #time { gap: 6px; flex-wrap: wrap; justify-content: flex-end; transform: none; }
+.compact #time > * { padding: 5px 10px; font-size: 12.5px; }
+.compact #time #date { min-width: 0; cursor: pointer; }
+.compact #time:not(.open) #time-rate, .compact #time:not(.open) #time-now { display: none; }
+
+/* ---- portrait: bottom sheet ---- */
+.sheet #credits-btn, .sheet #panel-btn { display: none; }
+.sheet #time { top: calc(52px + env(safe-area-inset-top)); bottom: auto; left: auto; right: var(--gap); max-width: 230px; }
+.sheet #panel {
+  top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 90dvh; border-radius: 16px 16px 0 0; border-bottom: 0;
+  transition: none; transform: translateY(calc(90dvh - var(--peek))); background: rgba(10, 14, 24, 0.86); z-index: 25;
+}
+.sheet #sheet-bar { display: block; flex: none; touch-action: none; cursor: grab; padding: 6px 0 0; }
+.sheet .grip { display: block; width: 36px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.3); margin: 0 auto 4px; }
+.sheet #sheet-toggle {
+  all: unset; box-sizing: border-box; display: flex; align-items: baseline; gap: 8px; width: 100%; height: 38px; padding: 0 18px; cursor: pointer;
+}
+.sheet #sheet-toggle:focus-visible { outline: 1px dashed var(--accent); outline-offset: -3px; }
+#sheet-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#sheet-title strong { font-size: 15px; margin-right: 8px; }
+#sheet-title span { font-size: 12.5px; color: var(--muted); }
+.sheet #sheet-toggle .chev { color: var(--muted); font-size: 14px; transition: transform 0.2s; }
+.sheet #panel:not([data-sheet='peek']) #sheet-toggle .chev { transform: rotate(180deg); }
+.sheet #panel-scroll { padding-top: 4px; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+.sheet .panel-head { display: none; }
+.sheet .panel-foot { display: block; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
+.panel-foot button { background: none; border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+.sheet #hint { bottom: calc(var(--peek) + 12px); font-size: 12px; }
+.sheet #loading { bottom: calc(var(--peek) + 8px); right: 12px; }
+
+/* ---- landscape: narrow side panel, closed at first ---- */
+.side #time { bottom: var(--gap); left: var(--gap); flex-wrap: nowrap; }
+.side #panel { top: 50px; right: var(--gap); bottom: var(--gap); width: 300px; z-index: 25; }
+.side #ladder.open { max-height: calc(100dvh - 54px); }
+.side #hint { bottom: 52px; left: 12px; transform: none; max-width: calc(100vw - 340px); font-size: 12px; }

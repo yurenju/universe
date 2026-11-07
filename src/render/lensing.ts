@@ -271,9 +271,10 @@ vec3 accel(vec3 x, float h2) {
 
 void main() {
   // view-space ray from the focal lengths (unprojecting the far plane loses
-  // all precision with our huge far/near ratio)
+  // all precision with our huge far/near ratio); the [2][x] terms are the
+  // off-centre shift a view offset adds
   vec2 ndc = vUv * 2.0 - 1.0;
-  vec3 dv = vec3(ndc.x / uProj[0][0], ndc.y / uProj[1][1], -1.0);
+  vec3 dv = vec3((ndc.x + uProj[2][0]) / uProj[0][0], (ndc.y + uProj[2][1]) / uProj[1][1], -1.0);
   vec3 d = normalize((uCamWorld * vec4(dv, 0.0)).xyz);
   vec3 o = uCamPos / uRs;
 

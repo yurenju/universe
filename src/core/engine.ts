@@ -190,6 +190,29 @@ export class Engine {
       c.fov = fov;
       c.updateProjectionMatrix();
     }
+    this.applyViewShift();
+  }
+
+  /**
+   * Move the centre of projection `px` CSS pixels up, so the view's centre sits in
+   * the middle of what a bottom sheet leaves uncovered. Zoom and field of view
+   * stay the same; only the picture slides.
+   */
+  setViewShift(px: number): void {
+    if (px === this.viewShift) return;
+    this.viewShift = px;
+    this.applyViewShift();
+  }
+
+  private viewShift = 0;
+
+  private applyViewShift(): void {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    for (const c of [...this.cameras, this.cuCamera]) {
+      if (this.viewShift) c.setViewOffset(w, h, 0, this.viewShift, w, h);
+      else c.clearViewOffset();
+    }
   }
 
   start(): void {

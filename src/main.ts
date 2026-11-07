@@ -21,6 +21,7 @@ import { PlanetaryLevel } from './levels/planetary';
 import { StellarLevel } from './levels/stellar';
 import { assetUrl } from './render/assets';
 import { attachControls } from './ui/controls';
+import { BottomSheet, watchLayout, type LayoutMode } from './ui/layout';
 import { MarkerOverlay } from './ui/markers';
 import { renderBody, renderCloseUp, renderCredits, renderLevel } from './ui/panel';
 
@@ -67,6 +68,7 @@ function main(): void {
   const initial: LevelId = route?.kind === 'level' ? route.id : route?.kind === 'closeUp' ? CLOSE_UP_RANGES[route.id].returnLevel : 'earth-moon';
   const engine = new Engine($<HTMLCanvasElement>('#scene'), levels, [new CygnusX1CloseUp(), new SgrACloseUp()], initial);
   const overlay = new MarkerOverlay($('#markers'), engine);
+  let mode: LayoutMode = 'desktop';
 
   // ---- Sim Time ----
   // Entering a view switches to its Default Time Rate (pause state is kept); a rate
@@ -94,8 +96,16 @@ function main(): void {
     syncRateMenu();
     play.textContent = '⏸';
   });
-  const dateEl = $('#date');
+  const dateEl = $<HTMLButtonElement>('#date');
   const dateFmt = new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const dateFmtShort = new Intl.DateTimeFormat('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  // on phones the time controls fold into one chip (date + pause); tapping the date opens the rest
+  const timeBox = $('#time');
+  const setTimeOpen = (open: boolean) => {
+    timeBox.classList.toggle('open', open);
+    dateEl.setAttribute('aria-expanded', String(open));
+  };
+  dateEl.addEventListener('click', () => setTimeOpen(!timeBox.classList.contains('open')));
 
   // ---- Scale Ladder ----
   const ladder = $('#ladder');
@@ -105,29 +115,61 @@ function main(): void {
     b.innerHTML = `<span class="pip"></span><span>${LEVEL_INFO[id].title}</span><span class="exp">10<sup>${Math.round(HOME_S[id])}</sup> m</span>`;
     b.addEventListener('click', () => {
       engine.goToLevel(id);
+      setLadderOpen(false);
       dismissHint();
     });
     ladder.appendChild(b);
     return b;
   });
 
-  // ---- panel ----
+  // On phones the level title doubles as the way in: it opens the ladder as a
+  // dropdown in a Scale Level and leaves the Close-up in a Close-up.
+  const where = $<HTMLButtonElement>('#where');
+  const setLadderOpen = (open: boolean) => {
+    ladder.classList.toggle('open', open);
+    where.setAttribute('aria-expanded', String(open));
+  };
+  where.addEventListener('click', () => {
+    if (engine.activeCloseUp()) engine.exitCloseUp();
+    else setLadderOpen(!ladder.classList.contains('open'));
+  });
+
+  // ---- Info Panel ----
   const panel = $('#panel');
   const panelBtn = $('#panel-btn');
+  const panelScroll = $('#panel-scroll');
+  const sheet = new BottomSheet(panel, $('#sheet-bar'), $<HTMLButtonElement>('#sheet-toggle'), panelScroll);
+  sheet.onShift = (px) => engine.setViewShift(px);
   const setPanel = (open: boolean) => {
     panel.classList.toggle('collapsed', !open);
     panelBtn.setAttribute('aria-expanded', String(open));
   };
-  setPanel(window.innerWidth > 760);
   panelBtn.addEventListener('click', () => setPanel(panel.classList.contains('collapsed')));
+  const applyMode = (m: LayoutMode) => {
+    mode = m;
+    sheet.enable(m === 'sheet');
+    setPanel(m !== 'side');
+    where.disabled = dateEl.disabled = m === 'desktop';
+    setLadderOpen(false);
+    setTimeOpen(false);
+  };
+  applyMode(watchLayout(applyMode));
   const levelSlot = $('#level-slot');
   const bodySlot = $('#body-slot');
+  const sheetTitle = $('#sheet-title');
+  const setTitle = (title: string, titleEn: string, span: string, closeUp: string | null) => {
+    $('#level-title').innerHTML = closeUp
+      ? `<span class="back-arrow" aria-hidden="true">←</span>${title}<small>${titleEn}</small>`
+      : `${title}<small>${titleEn}</small><span class="chev" aria-hidden="true">▾</span>`;
+    where.setAttribute('aria-label', closeUp ? `離開${title}，${closeUp}` : `${title}，切換尺度層級`);
+    sheetTitle.innerHTML = `<strong>${title}</strong><span>畫面範圍${span}</span>`;
+  };
 
   const showLevel = (i: number) => {
     if (engine.activeCloseUp()) return;
     const id = LEVEL_IDS[i];
     ladderButtons.forEach((b, k) => b.setAttribute('aria-current', String(k === i)));
-    $('#level-title').innerHTML = `${LEVEL_INFO[id].title}<small>${LEVEL_INFO[id].titleEn}</small>`;
+    setTitle(LEVEL_INFO[id].title, LEVEL_INFO[id].titleEn, LEVEL_INFO[id].span, null);
     levelSlot.innerHTML = renderLevel(id);
     $('#time').hidden = i > 1;
     enterTimeView(id);
@@ -155,13 +197,13 @@ function main(): void {
     const info = CLOSE_UP_INFO[id];
     back.textContent = `← 回到${LEVEL_INFO[CLOSE_UP_RANGES[id].returnLevel].title}`;
     fromEarth.textContent = info.fromEarth;
-    $('#level-title').innerHTML = `${info.title}<small>${info.titleEn}</small>`;
+    setTitle(info.title, info.titleEn, info.span, back.textContent.slice(2));
     levelSlot.innerHTML = renderCloseUp(id);
     $('#time').hidden = false;
     enterTimeView(id);
     if (location.hash !== `#${id}`) history.replaceState(null, '', `#${id}`);
     document.title = `${info.title}｜宇宙尺度`;
-    panel.scrollTop = 0;
+    panelScroll.scrollTop = 0;
   };
   back.addEventListener('click', () => engine.exitCloseUp());
   window.addEventListener('keydown', (e) => {
@@ -169,16 +211,25 @@ function main(): void {
   });
   if (route?.kind === 'closeUp') engine.enterCloseUp(route.id, undefined, true);
 
+  // A Body Card opens the sheet to half height; closing it drops the sheet back
+  // to its bar (unless the viewer has pulled it all the way up meanwhile).
+  const cardClosed = () => {
+    if (sheet.active && sheet.state === 'half') sheet.set('peek');
+  };
   engine.onFocusChange = (marker) => {
+    const hadCard = !!bodySlot.innerHTML;
     bodySlot.innerHTML = marker ? renderBody(marker) : '';
     bodySlot.querySelector('.close')?.addEventListener('click', () => {
       bodySlot.innerHTML = '';
       engine.releaseFocus();
+      cardClosed();
     });
     if (marker && bodySlot.innerHTML) {
-      setPanel(true);
-      panel.scrollTop = 0;
-    }
+      if (sheet.active) {
+        if (sheet.state === 'peek') sheet.set('half');
+      } else setPanel(true);
+      panelScroll.scrollTop = 0;
+    } else if (hadCard) cardClosed();
   };
 
   window.addEventListener('hashchange', () => {
@@ -251,6 +302,24 @@ function main(): void {
     }
   });
   // capture, so Esc closes the explanation before it would leave a Close-up
+  // phone dropdowns (ladder, time chip) close on a tap elsewhere or Esc
+  document.addEventListener('click', (e) => {
+    const t = e.target as Node;
+    if (ladder.classList.contains('open') && !ladder.contains(t) && !where.contains(t)) setLadderOpen(false);
+    if (timeBox.classList.contains('open') && !timeBox.contains(t)) setTimeOpen(false);
+  });
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'Escape') return;
+      if (ladder.classList.contains('open') || timeBox.classList.contains('open')) {
+        setLadderOpen(false);
+        setTimeOpen(false);
+        e.stopImmediatePropagation();
+      }
+    },
+    { capture: true },
+  );
   window.addEventListener(
     'keydown',
     (e) => {
@@ -266,10 +335,11 @@ function main(): void {
 
   // ---- credits ----
   const dialog = $<HTMLDialogElement>('#credits');
-  $('#credits-btn').addEventListener('click', () => {
-    dialog.querySelector('.content')!.innerHTML = renderCredits();
-    dialog.showModal();
-  });
+  for (const b of document.querySelectorAll('#credits-btn, .credits-open'))
+    b.addEventListener('click', () => {
+      dialog.querySelector('.content')!.innerHTML = renderCredits();
+      dialog.showModal();
+    });
   dialog.querySelector('.close')!.addEventListener('click', () => dialog.close());
   dialog.addEventListener('click', (e) => e.target === dialog && dialog.close());
 
@@ -298,7 +368,7 @@ function main(): void {
       widthEl.textContent = `畫面寬度約 ${formatDistance(w)}`;
       lightEl.textContent = `光走過要 ${formatLightTime(w)}`;
       if (!magnifyTip.hidden) magnifyTip.textContent = magnifyNote(currentView());
-      if (engine.dominant <= 1 || engine.activeCloseUp()) dateEl.textContent = dateFmt.format(engine.clock.date);
+      if (engine.dominant <= 1 || engine.activeCloseUp()) dateEl.textContent = (mode === 'desktop' ? dateFmt : dateFmtShort).format(engine.clock.date);
     }
   };
 
