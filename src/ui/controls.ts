@@ -5,9 +5,12 @@ export function attachControls(el: HTMLElement, engine: Engine, onInteract: () =
   const pointers = new Map<number, { x: number; y: number }>();
   let pinchDist = 0;
 
-  el.addEventListener(
+  // Listen on window so the wheel also works over marker labels; let the
+  // scrollable panels and dialogs keep their own scrolling.
+  window.addEventListener(
     'wheel',
     (e) => {
+      if ((e.target as HTMLElement)?.closest?.('#panel, dialog, #ladder')) return;
       e.preventDefault();
       const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1;
       engine.zoomBy(e.deltaY * unit * 0.0016);
