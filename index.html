@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="從地球與月球一路縮放到可觀測宇宙，用 3D 體會宇宙的尺度。" />
+    <meta name="theme-color" content="#000000" />
+    <title>宇宙尺度｜從地月到可觀測宇宙</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23000'/%3E%3Cellipse cx='32' cy='32' rx='26' ry='9' fill='none' stroke='%23ffcf8a' stroke-width='3' transform='rotate(-25 32 32)'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%23ffe8b0'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <canvas id="scene" aria-label="可縮放的 3D 宇宙場景"></canvas>
+    <div id="markers" aria-live="off"></div>
+
+    <header id="hud">
+      <h1 id="level-title">宇宙尺度</h1>
+      <div id="scale-readout">
+        <div class="bar"><span></span></div>
+        <div class="text"><span id="view-width">—</span><span id="light-time">—</span></div>
+      </div>
+    </header>
+
+    <nav id="ladder" aria-label="尺度階梯"></nav>
+
+    <div id="toolbar">
+      <label class="toggle"><input type="checkbox" id="magnify" /> <span>放大天體</span></label>
+      <button type="button" id="credits-btn">資料來源</button>
+      <button type="button" id="panel-btn" aria-expanded="true">說明</button>
+    </div>
+
+    <div id="time" hidden>
+      <span id="date"></span>
+      <button type="button" id="time-play" aria-label="暫停／播放">⏸</button>
+      <select id="time-rate" aria-label="時間速度"></select>
+      <button type="button" id="time-now">回到現在</button>
+    </div>
+
+    <aside id="panel" aria-live="polite">
+      <div id="body-slot"></div>
+      <div id="level-slot"></div>
+    </aside>
+
+    <div id="hint">滾動滑鼠滾輪（或雙指縮放）縮小，看看宇宙有多大 · 拖曳旋轉 · 點標記看詳細</div>
+    <div id="loading" hidden>載入中…</div>
+
+    <dialog id="credits"><button class="close" type="button" aria-label="關閉">×</button><div class="content"></div></dialog>
+
+    <div id="no-webgl" hidden>
+      <h1>宇宙尺度</h1>
+      <p>你的瀏覽器不支援 WebGL，無法顯示 3D 場景。請改用新版 Chrome、Edge、Firefox 或 Safari。</p>
+      <div id="no-webgl-list"></div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
