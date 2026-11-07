@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Engine } from '../core/engine';
+import type { Engine, LevelView } from '../core/engine';
 import type { Marker } from '../core/level';
 
 const FADE = 0.2; // dex over which a marker fades in/out at the edges of its range
@@ -25,6 +25,8 @@ function labelSize(m: Marker): { w: number; h: number } {
 /** DOM overlay of Position Markers: fixed-pixel dots and labels. */
 export class MarkerOverlay {
   private els = new Map<string, HTMLElement>();
+  /** Latest view each marker was drawn in (views are rebuilt every frame). */
+  private views = new Map<string, LevelView>();
   private tmp = new THREE.Vector3();
 
   constructor(
@@ -32,7 +34,7 @@ export class MarkerOverlay {
     private engine: Engine,
   ) {}
 
-  private element(key: string, levelIndex: number, m: Marker): HTMLElement {
+  private element(key: string, view: LevelView, m: Marker): HTMLElement {
     let el = this.els.get(key);
     if (!el) {
       const btn = document.createElement('button');
@@ -45,7 +47,7 @@ export class MarkerOverlay {
       el.setAttribute('aria-label', m.label);
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.engine.selectMarker(levelIndex, m);
+        this.engine.selectMarkerInView(this.views.get(key) ?? view, m);
       });
       this.root.appendChild(el);
       this.els.set(key, el);
@@ -56,18 +58,19 @@ export class MarkerOverlay {
   update(): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const s = this.engine.s;
     const seen = new Set<string>();
     const placed: Placed[] = [];
     for (const view of this.engine.views) {
       for (const m of view.level.markers) {
+        const s = view.s;
         const edge = Math.min((s - m.sMin) / FADE, (m.sMax - s) / FADE, 1);
         const alpha = Math.max(0, edge) * view.weight;
         if (alpha <= 0.02) continue;
         const p = m.position(this.tmp).project(view.camera);
         if (p.z > 1 || p.z < -1 || Math.abs(p.x) > 1.2 || Math.abs(p.y) > 1.2) continue;
         const key = `${view.level.id}:${m.id}`;
-        const el = this.element(key, view.index, m);
+        const el = this.element(key, view, m);
+        this.views.set(key, view);
         seen.add(key);
         const x = (p.x * 0.5 + 0.5) * w;
         const y = (-p.y * 0.5 + 0.5) * h;

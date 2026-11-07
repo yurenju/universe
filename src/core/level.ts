@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
 import type { AnchorName } from './anchors';
+import type { CloseUpId } from './closeUp';
 import type { LevelId } from './scale';
 
 export interface FrameContext {
@@ -44,18 +45,37 @@ export interface Marker {
   jumpToS?: number;
   /** Key into the body info content. */
   infoId?: string;
+  /** Clicking enters this Close-up. */
+  closeUp?: CloseUpId;
 }
 
-export interface ScaleLevel {
-  id: LevelId;
+/** Anything the engine can draw from its own camera: a Scale Level or a Close-up. */
+export interface ViewScene {
+  readonly id: string;
   /** Metres per scene unit. */
   unit: number;
   scene: THREE.Scene;
   markers: Marker[];
+  /** Load assets; called once, lazily, shortly before the scene is first needed. */
+  load(): Promise<void>;
+  /** Per-frame update while the scene has weight > 0. */
+  update(ctx: FrameContext): void;
+  /**
+   * Optional custom render into `target` (e.g. with a post-process). Without
+   * it the engine renders `scene` directly.
+   */
+  render?(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera, target: THREE.WebGLRenderTarget): void;
+}
+
+export interface ScaleLevel extends ViewScene {
+  id: LevelId;
   /** Positions of the named anchors this level uses, in scene units. */
   anchor(name: AnchorName, out: THREE.Vector3): THREE.Vector3;
-  /** Load assets; called once, lazily, shortly before the level is first needed. */
-  load(): Promise<void>;
-  /** Per-frame update while the level has weight > 0. */
-  update(ctx: FrameContext): void;
+}
+
+/** A Close-up: a self-contained scene centred on its origin (see ADR 0002). */
+export interface CloseUpScene extends ViewScene {
+  id: CloseUpId;
+  /** Camera angles the close-up opens with. */
+  defaultView: { yaw: number; pitch: number };
 }

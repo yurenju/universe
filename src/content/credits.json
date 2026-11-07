@@ -428,5 +428,35 @@
     "licenseUrl": "https://creativecommons.org/publicdomain/mark/1.0/",
     "source": "https://commons.wikimedia.org/wiki/File:Webb%27s_First_Deep_Field.jpg",
     "observed": true
+  },
+  {
+    "id": "cygx1_illustration",
+    "file": "photos/cygx1_illustration.jpg",
+    "kind": "photo",
+    "level": null,
+    "closeUp": "cygnus-x1",
+    "title": "Illustration of Cygnus X-1",
+    "titleZh": "天鵝座 X-1 藝術家概念圖",
+    "captionZh": "黑洞從藍色超巨星 HDE 226868 吸走氣體，形成吸積盤與噴流。這是畫家依觀測推論畫出的示意圖，黑洞與吸積盤的大小被大幅誇大；真實的事件視界只有約 126 公里寬，任何望遠鏡都拍不到這個畫面。",
+    "author": "NASA/CXC/M.Weiss",
+    "license": "Public domain",
+    "licenseUrl": "https://chandra.si.edu/photo/image_use.html",
+    "source": "https://commons.wikimedia.org/wiki/File:Illustration_of_Cygnus_X-1_(2011-cygx1-more-1).tiff",
+    "observed": false
+  },
+  {
+    "id": "sgra_eht",
+    "file": "photos/sgra_eht.jpg",
+    "kind": "photo",
+    "level": null,
+    "closeUp": "sgr-a",
+    "title": "First image of our black hole",
+    "titleZh": "事件視界望遠鏡拍下的人馬座 A*",
+    "captionZh": "2022 年事件視界望遠鏡（EHT）公布的第一張人馬座 A* 影像：中間暗的是黑洞的陰影，周圍的光環是被重力彎曲的熱氣體光芒，環的直徑約 52 微角秒，相當於從地球看月球上的一個甜甜圈。",
+    "author": "EHT Collaboration",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:First_image_of_our_black_hole_(eso2208-eht-mwa).jpg",
+    "observed": true
   }
 ]

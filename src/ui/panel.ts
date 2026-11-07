@@ -1,5 +1,6 @@
 import { CREDITS, DATA_CREDITS } from '../content/credits';
-import { BODY_INFO, LEVEL_INFO, type BodyInfo } from '../content/info';
+import { BODY_INFO, CLOSE_UP_INFO, LEVEL_INFO, type BodyInfo, type LevelInfo } from '../content/info';
+import type { CloseUpId } from '../core/closeUp';
 import { LOCAL_GROUP } from '../content/localGroup';
 import { CLUSTERS } from '../content/largeScale';
 import type { Marker } from '../core/level';
@@ -15,8 +16,14 @@ function factsTable(facts: [string, string][]): string {
 }
 
 export function renderLevel(id: LevelId): string {
-  const info = LEVEL_INFO[id];
-  const photos = CREDITS.filter((c) => c.kind === 'photo' && c.level === id);
+  return renderInfo(LEVEL_INFO[id], CREDITS.filter((c) => c.kind === 'photo' && c.level === id && !c.closeUp), '這一層怎麼畫的');
+}
+
+export function renderCloseUp(id: CloseUpId): string {
+  return renderInfo(CLOSE_UP_INFO[id], CREDITS.filter((c) => c.kind === 'photo' && c.closeUp === id), '這個特寫怎麼畫的');
+}
+
+function renderInfo(info: LevelInfo, photos: typeof CREDITS, howTitle: string): string {
   const photoHtml = photos
     .map(
       (p) => `
@@ -31,6 +38,7 @@ export function renderLevel(id: LevelId): string {
       </figure>`,
     )
     .join('');
+  const observedPhotos = photos.some((p) => p.observed);
   return `
     <header class="panel-head">
       <h2>${esc(info.title)} <small>${esc(info.titleEn)}</small></h2>
@@ -38,8 +46,8 @@ export function renderLevel(id: LevelId): string {
     </header>
     <p class="intro">${esc(info.intro)}</p>
     ${factsTable(info.facts)}
-    ${photos.length ? `<h3>對照照片</h3>${photoHtml}` : ''}
-    <h3>這一層怎麼畫的</h3>
+    ${photos.length ? `<h3>${observedPhotos ? '對照照片' : '對照圖'}</h3>${photoHtml}` : ''}
+    <h3>${esc(howTitle)}</h3>
     <ul class="provenance">
       ${info.observed.map((t) => `<li><span class="badge obs">觀測資料</span>${esc(t)}</li>`).join('')}
       ${info.inferred.map((t) => `<li><span class="badge inf">推測呈現</span>${esc(t)}</li>`).join('')}

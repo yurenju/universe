@@ -7,6 +7,15 @@ import { basisToMatrix } from '../core/sphere';
 import { createPoints, createPointsMaterial, updatePointsScale } from '../render/points';
 import { glowSprite, glowTexture } from '../render/primitives';
 import { BaseLevel } from './base';
+import { CYG_X1 } from '../content/blackholes';
+import { eqToGal, raDecToVec } from '../core/frames';
+
+/** Cygnus X-1 in the heliocentric galactic frame, kly. */
+export const CYG_X1_KLY: Vec3 = (() => {
+  const d = (CYG_X1.distanceKpc * 1e3 * METERS.PC) / METERS.KLY;
+  const u = eqToGal(raDecToVec(CYG_X1.raHours, CYG_X1.decDeg));
+  return [u[0] * d, u[1] * d, u[2] * d];
+})();
 
 /** Sun–galactic-centre distance (GRAVITY 2019: 8.18 kpc), in kly. */
 export const R0_KLY = 26.7;
@@ -73,7 +82,8 @@ export class MilkyWayLevel extends BaseLevel {
     const orion = fromCentre(polar(R0_KLY + 0.4, Math.PI + 0.32));
     this.markers = [
       this.fixedMarker({ id: 'sun', label: '太陽（你在這裡）', labelEn: 'Sun — you are here', kind: 'here', at: new THREE.Vector3(), sMin: 19.3, sMax: 22.4, infoId: 'SolarSystemHere', jumpToS: 17.75 }),
-      this.fixedMarker({ id: 'gc', label: '銀河中心（人馬座 A*）', labelEn: 'Galactic centre — Sgr A*', kind: 'body', at: gc, sMin: 20.0, sMax: 22.2, infoId: 'SgrA' }),
+      this.fixedMarker({ id: 'gc', label: '銀河中心（人馬座 A*）', labelEn: 'Galactic centre — Sgr A*', kind: 'body', at: gc, sMin: 20.0, sMax: 22.2, infoId: 'SgrA', closeUp: 'sgr-a' }),
+      this.fixedMarker({ id: 'cyg-x1', label: '天鵝座 X-1（黑洞）', labelEn: 'Cygnus X-1 — black hole', kind: 'body', at: new THREE.Vector3(...toThree(CYG_X1_KLY)), sMin: 19.4, sMax: 21.4, infoId: 'CygX1', closeUp: 'cygnus-x1' }),
       this.fixedMarker({ id: 'bar', label: '中央棒', labelEn: 'Central bar', kind: 'region', at: new THREE.Vector3(...toThree(fromCentre(polar(11, BAR_ANGLE)))), sMin: 20.6, sMax: 21.8, infoId: 'Bar' }),
       this.fixedMarker({ id: 'orion-spur', label: '獵戶支臂', labelEn: 'Orion Spur', kind: 'region', at: new THREE.Vector3(...toThree(orion)), sMin: 19.9, sMax: 21.3, infoId: 'arm:orion' }),
       along(R0_KLY + 6.5, -0.12, 'perseus', '英仙臂', 'Perseus Arm', 'arm:perseus'),

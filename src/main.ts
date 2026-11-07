@@ -1,10 +1,14 @@
 import './style.css';
-import { LEVEL_INFO } from './content/info';
+import { CLOSE_UP_INFO, LEVEL_INFO } from './content/info';
+import { magnifyNote, type ViewId } from './content/magnify';
 import { CREDITS } from './content/credits';
 import { RATE_PRESETS } from './core/clock';
+import { CLOSE_UP_RANGES, parseRoute } from './core/closeUp';
 import { Engine } from './core/engine';
 import type { ScaleLevel } from './core/level';
-import { HOME_S, LEVEL_IDS, parseHash, type LevelId } from './core/scale';
+import { HOME_S, LEVEL_IDS, type LevelId } from './core/scale';
+import { CygnusX1CloseUp } from './closeUps/cygnusX1';
+import { SgrACloseUp } from './closeUps/sgrA';
 import { formatDistance, formatLightTime } from './core/units';
 import { EarthMoonLevel } from './levels/earthMoon';
 import { HeliosphereLevel } from './levels/heliosphere';
@@ -18,7 +22,7 @@ import { StellarLevel } from './levels/stellar';
 import { assetUrl } from './render/assets';
 import { attachControls } from './ui/controls';
 import { MarkerOverlay } from './ui/markers';
-import { renderBody, renderCredits, renderLevel } from './ui/panel';
+import { renderBody, renderCloseUp, renderCredits, renderLevel } from './ui/panel';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -59,8 +63,9 @@ function main(): void {
     new LaniakeaLevel(),
     new ObservableLevel(),
   ];
-  const initial: LevelId = parseHash(location.hash) ?? 'earth-moon';
-  const engine = new Engine($<HTMLCanvasElement>('#scene'), levels, initial);
+  const route = parseRoute(location.hash);
+  const initial: LevelId = route?.kind === 'level' ? route.id : route?.kind === 'closeUp' ? CLOSE_UP_RANGES[route.id].returnLevel : 'earth-moon';
+  const engine = new Engine($<HTMLCanvasElement>('#scene'), levels, [new CygnusX1CloseUp(), new SgrACloseUp()], initial);
   const overlay = new MarkerOverlay($('#markers'), engine);
 
   // ---- Scale Ladder ----
@@ -90,6 +95,7 @@ function main(): void {
   const bodySlot = $('#body-slot');
 
   const showLevel = (i: number) => {
+    if (engine.activeCloseUp()) return;
     const id = LEVEL_IDS[i];
     ladderButtons.forEach((b, k) => b.setAttribute('aria-current', String(k === i)));
     $('#level-title').innerHTML = `${LEVEL_INFO[id].title}<small>${LEVEL_INFO[id].titleEn}</small>`;
@@ -104,6 +110,34 @@ function main(): void {
   };
   showLevel(engine.dominant);
 
+  // ---- Close-ups ----
+  const back = $<HTMLButtonElement>('#back');
+  const fromEarth = $('#from-earth');
+  engine.onCloseUpChange = (id) => {
+    ladder.hidden = !!id;
+    back.hidden = !id;
+    fromEarth.hidden = !id;
+    bodySlot.innerHTML = '';
+    if (!id) {
+      showLevel(engine.dominant);
+      return;
+    }
+    const info = CLOSE_UP_INFO[id];
+    back.textContent = `← 回到${LEVEL_INFO[CLOSE_UP_RANGES[id].returnLevel].title}`;
+    fromEarth.textContent = info.fromEarth;
+    $('#level-title').innerHTML = `${info.title}<small>${info.titleEn}</small>`;
+    levelSlot.innerHTML = renderCloseUp(id);
+    $('#time').hidden = false;
+    if (location.hash !== `#${id}`) history.replaceState(null, '', `#${id}`);
+    document.title = `${info.title}｜宇宙尺度`;
+    panel.scrollTop = 0;
+  };
+  back.addEventListener('click', () => engine.exitCloseUp());
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && engine.activeCloseUp() && !document.querySelector('dialog[open]')) engine.exitCloseUp();
+  });
+  if (route?.kind === 'closeUp') engine.enterCloseUp(route.id, undefined, true);
+
   engine.onFocusChange = (marker) => {
     bodySlot.innerHTML = marker ? renderBody(marker) : '';
     bodySlot.querySelector('.close')?.addEventListener('click', () => {
@@ -117,13 +151,86 @@ function main(): void {
   };
 
   window.addEventListener('hashchange', () => {
-    const id = parseHash(location.hash);
-    if (id && LEVEL_IDS[engine.dominant] !== id) engine.goToLevel(id);
+    const r = parseRoute(location.hash);
+    if (!r) return;
+    if (r.kind === 'closeUp') {
+      if (engine.activeCloseUp() !== r.id) engine.enterCloseUp(r.id, undefined, true);
+      return;
+    }
+    if (engine.activeCloseUp()) engine.exitCloseUp();
+    if (LEVEL_IDS[engine.dominant] !== r.id) engine.goToLevel(r.id);
   });
 
   // ---- magnify ----
   const magnify = $<HTMLInputElement>('#magnify');
+  engine.magnify = magnify.checked; // on by default (see GLOSSARY: 放大天體)
   magnify.addEventListener('change', () => (engine.magnify = magnify.checked));
+
+  // Explanation of what the toggle does in the current view: shown while the
+  // mouse is over the toggle or it has keyboard focus; the "?" button pins it
+  // open (the way to read it on touch screens) until tapped again, tapped
+  // elsewhere, or Esc.
+  const magnifyWrap = $('#magnify-wrap');
+  const magnifyInfo = $<HTMLButtonElement>('#magnify-info');
+  const magnifyTip = $('#magnify-tip');
+  let tipPinned = false;
+  let tipHover = false;
+  const currentView = (): ViewId => engine.activeCloseUp() ?? LEVEL_IDS[engine.dominant];
+  const syncTip = () => {
+    const open = tipPinned || tipHover;
+    if (open) magnifyTip.textContent = magnifyNote(currentView());
+    magnifyTip.hidden = !open;
+    magnifyInfo.setAttribute('aria-expanded', String(tipPinned));
+    if (open) {
+      // keep the box inside the screen (on phones the toolbar sits at the bottom edge)
+      magnifyTip.style.transform = '';
+      const r = magnifyTip.getBoundingClientRect();
+      const dx = Math.min(0, window.innerWidth - 8 - r.right) + Math.max(0, 8 - r.left);
+      if (dx) magnifyTip.style.transform = `translateX(${dx}px)`;
+    }
+  };
+  magnifyWrap.addEventListener('pointerenter', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    tipHover = true;
+    syncTip();
+  });
+  magnifyWrap.addEventListener('pointerleave', () => {
+    tipHover = false;
+    syncTip();
+  });
+  magnifyWrap.addEventListener('focusin', (e) => {
+    if ((e.target as HTMLElement).matches(':focus-visible')) {
+      tipHover = true;
+      syncTip();
+    }
+  });
+  magnifyWrap.addEventListener('focusout', () => {
+    tipHover = false;
+    syncTip();
+  });
+  magnifyInfo.addEventListener('click', (e) => {
+    e.stopPropagation();
+    tipPinned = !tipPinned;
+    syncTip();
+  });
+  document.addEventListener('click', (e) => {
+    if (tipPinned && !magnifyWrap.contains(e.target as Node)) {
+      tipPinned = false;
+      syncTip();
+    }
+  });
+  // capture, so Esc closes the explanation before it would leave a Close-up
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key === 'Escape' && !magnifyTip.hidden) {
+        tipPinned = tipHover = false;
+        syncTip();
+        e.stopImmediatePropagation();
+      }
+    },
+    { capture: true },
+  );
 
   // ---- Sim Time ----
   const rate = $<HTMLSelectElement>('#time-rate');
@@ -175,7 +282,8 @@ function main(): void {
       const w = engine.viewWidthMeters();
       widthEl.textContent = `畫面寬度約 ${formatDistance(w)}`;
       lightEl.textContent = `光走過要 ${formatLightTime(w)}`;
-      if (engine.dominant <= 1) dateEl.textContent = dateFmt.format(engine.clock.date);
+      if (!magnifyTip.hidden) magnifyTip.textContent = magnifyNote(currentView());
+      if (engine.dominant <= 1 || engine.activeCloseUp()) dateEl.textContent = dateFmt.format(engine.clock.date);
     }
   };
 

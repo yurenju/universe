@@ -16,14 +16,19 @@
       <h1 id="level-title">宇宙尺度</h1>
       <div id="scale-readout">
         <div class="bar"><span></span></div>
-        <div class="text"><span id="view-width">—</span><span id="light-time">—</span></div>
+        <div class="text"><span id="view-width">—</span><span id="light-time">—</span><span id="from-earth" hidden></span></div>
       </div>
     </header>
 
     <nav id="ladder" aria-label="尺度階梯"></nav>
+    <button type="button" id="back" hidden>← 回到銀河系</button>
 
     <div id="toolbar">
-      <label class="toggle"><input type="checkbox" id="magnify" /> <span>放大天體</span></label>
+      <span id="magnify-wrap" class="toggle">
+        <label class="toggle"><input type="checkbox" id="magnify" checked aria-describedby="magnify-tip" /> <span>放大天體</span></label>
+        <button type="button" id="magnify-info" aria-label="放大天體是什麼？" aria-expanded="false" aria-controls="magnify-tip">?</button>
+        <span id="magnify-tip" role="tooltip" hidden></span>
+      </span>
       <button type="button" id="credits-btn">資料來源</button>
       <button type="button" id="panel-btn" aria-expanded="true">說明</button>
     </div>

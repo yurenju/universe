@@ -11,7 +11,7 @@ import { BaseLevel } from './base';
 
 const UNIT = 1e6; // 1 scene unit = 1,000 km
 const AU = METERS.AU / UNIT;
-const MOON_MAGNIFY = 3;
+export const MOON_MAGNIFY = 3;
 
 export class EarthMoonLevel extends BaseLevel {
   readonly id = 'earth-moon' as const;
